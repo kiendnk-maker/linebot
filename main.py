@@ -642,6 +642,34 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
             return f"⚠️ Whisper 錯誤: {str(e)[:150]}"
 
 
+async def clean_transcript(transcript: str) -> str:
+    """
+    Dùng gpt120b sửa lỗi chính tả, nghe nhầm từ Whisper.
+    Chỉ sửa lỗi, không thay đổi ý nghĩa hay thêm nội dung.
+    """
+    async with httpx.AsyncClient() as http:
+        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+        try:
+            resp = await client.chat.completions.create(
+                model=MODEL_REGISTRY["gpt120b"]["model_id"],
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        "Đây là transcript từ giọng nói, có thể có lỗi nghe nhầm hoặc sai chính tả. "
+                        "Hãy sửa lỗi chính tả và từ nghe nhầm, giữ nguyên ý nghĩa và ngôn ngữ gốc. "
+                        "Chỉ trả về câu đã sửa, không giải thích.\n\n"
+                        f"Transcript: {transcript}"
+                    ),
+                }],
+                temperature=0.0,
+                max_tokens=300,
+            )
+            cleaned = resp.choices[0].message.content.strip()
+            return cleaned if cleaned else transcript
+        except Exception:
+            return transcript  # fallback về transcript gốc nếu lỗi
+
+
 # ---------------------------------------------------------------------------
 # COMMAND SYSTEM
 # ---------------------------------------------------------------------------
