@@ -11,25 +11,11 @@ from linebot.v3.messaging import (
 from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, ImageMessageContent, AudioMessageContent,
 )
+from prompts import get_system_prompt
 
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
-try:
-    from prompts import SYSTEM_PROMPT
-except ImportError:
-    SYSTEM_PROMPT = (
-        "Bạn là trợ lý thông minh. Nếu dùng tiếng Trung hãy dùng Phồn thể.\n"
-    )
-
-_NO_MD_SUFFIX = (
-    "\nQUAN TRỌNG: Đây là chat LINE, KHÔNG dùng Markdown. "
-    "Không dùng **bold**, *italic*, # heading, ```code block```, - bullet, _ underscore. "
-    "Chỉ trả lời bằng văn xuôi thuần túy."
-)
-if _NO_MD_SUFFIX.strip() not in SYSTEM_PROMPT:
-    SYSTEM_PROMPT = SYSTEM_PROMPT + _NO_MD_SUFFIX
-
 LINE_CHANNEL_SECRET       = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 GROQ_API_KEY              = os.environ["GROQ_API_KEY"]
@@ -38,15 +24,20 @@ WHISPER_MODEL             = "whisper-large-v3-turbo"
 
 # ---------------------------------------------------------------------------
 # MODEL REGISTRY
+# Source: https://console.groq.com/docs/models  (checked 2026-03-14)
+#
+# tier:  "production" | "preview"
+# type:  "text" | "vision" | "reasoning"
 # ---------------------------------------------------------------------------
 MODEL_REGISTRY: dict[str, dict] = {
+    # ── Production ──────────────────────────────────────────────────────────
     "llama8b": {
         "model_id": "llama-3.1-8b-instant",
         "type":     "text",
         "tier":     "production",
         "display":  "LLaMA 3.1 8B",
         "ctx":      131_072,
-        "note":     "Fastest ~900 t/s, rất rẻ — dùng cho chitchat & classifier",
+        "note":     "最快 ~900 t/s，超便宜 — 用於 classifier 和簡單對話",
     },
     "llama70b": {
         "model_id": "llama-3.3-70b-versatile",
@@ -54,7 +45,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "tier":     "production",
         "display":  "LLaMA 3.3 70B",
         "ctx":      131_072,
-        "note":     "Balanced, tool-use tốt, viết lách, dịch thuật",
+        "note":     "均衡性能，寫作、翻譯、多語言",
     },
     "gpt20b": {
         "model_id": "openai/gpt-oss-20b",
@@ -62,7 +53,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "tier":     "production",
         "display":  "GPT-OSS 20B",
         "ctx":      131_072,
-        "note":     "Siêu nhanh ~1000 t/s, reasoning nhẹ",
+        "note":     "超快 ~1000 t/s，輕量推理",
     },
     "gpt120b": {
         "model_id": "openai/gpt-oss-120b",
@@ -70,39 +61,15 @@ MODEL_REGISTRY: dict[str, dict] = {
         "tier":     "production",
         "display":  "GPT-OSS 120B",
         "ctx":      131_072,
-        "note":     "Reasoning mạnh nhất, ~500 t/s",
-    },
-    "scout": {
-        "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
-        "type":     "vision",
-        "tier":     "preview",
-        "display":  "LLaMA 4 Scout (Vision)",
-        "ctx":      131_072,
-        "note":     "Vision model duy nhất, latency thấp",
-    },
-    "qwen": {
-        "model_id": "qwen/qwen3-32b",
-        "type":     "reasoning",
-        "tier":     "preview",
-        "display":  "Qwen3 32B",
-        "ctx":      131_072,
-        "note":     "Reasoning + thinking mode, đa ngôn ngữ tốt",
-    },
-    "kimi": {
-        "model_id": "moonshotai/kimi-k2-instruct-0905",
-        "type":     "text",
-        "tier":     "preview",
-        "display":  "Kimi K2 0905",
-        "ctx":      262_144,
-        "note":     "Context 256K, agentic, coding",
+        "note":     "最強推理，~500 t/s",
     },
     "compound": {
         "model_id": "compound-beta",
         "type":     "text",
         "tier":     "production",
-        "display":  "Groq Compound (web search)",
+        "display":  "Groq Compound（網路搜尋）",
         "ctx":      131_072,
-        "note":     "Web search + code execution built-in",
+        "note":     "內建網路搜尋 + 程式執行",
     },
     "compound-mini": {
         "model_id": "compound-beta-mini",
@@ -110,29 +77,52 @@ MODEL_REGISTRY: dict[str, dict] = {
         "tier":     "production",
         "display":  "Groq Compound Mini",
         "ctx":      131_072,
-        "note":     "Compound nhanh hơn, 1 tool call",
+        "note":     "Compound 輕量版，單次工具呼叫",
+    },
+    # ── Preview ─────────────────────────────────────────────────────────────
+    "scout": {
+        "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "type":     "vision",
+        "tier":     "preview",
+        "display":  "LLaMA 4 Scout（視覺）",
+        "ctx":      131_072,
+        "note":     "唯一視覺模型，低延遲",
+    },
+    "qwen": {
+        "model_id": "qwen/qwen3-32b",
+        "type":     "reasoning",
+        "tier":     "preview",
+        "display":  "Qwen3 32B",
+        "ctx":      131_072,
+        "note":     "推理 + thinking mode，多語言強",
+    },
+    "kimi": {
+        "model_id": "moonshotai/kimi-k2-instruct-0905",
+        "type":     "text",
+        "tier":     "preview",
+        "display":  "Kimi K2 0905",
+        "ctx":      262_144,
+        "note":     "最長 context 256K，agentic coding",
     },
 }
 
-DEFAULT_MODEL_KEY   = "llama70b"
-VISION_MODEL_KEY    = "scout"
+DEFAULT_MODEL_KEY    = "llama70b"
+VISION_MODEL_KEY     = "scout"
 CLASSIFIER_MODEL_KEY = "llama8b"
 
 # ---------------------------------------------------------------------------
 # AUTO-ROUTER
 # ---------------------------------------------------------------------------
 
-# Mapping category → model key
-# Thứ tự ưu tiên: chất lượng > tốc độ (vì user chọn quality)
+# Mapping classifier category → model key
 ROUTE_MAP: dict[str, str] = {
-    "simple":    "llama8b",    # chitchat, chào hỏi → nhanh + rẻ
-    "creative":  "llama70b",   # viết, dịch, tóm tắt → balanced
-    "reasoning": "qwen",       # toán, logic, phân tích → thinking mode
-    "hard":      "gpt120b",    # câu hỏi khó, mơ hồ, multi-step → mạnh nhất
-    "search":    "compound",   # cần thông tin thực tế/mới → web search
+    "simple":    "llama8b",    # 打招呼、是非題、簡短事實
+    "creative":  "llama70b",   # 寫作、翻譯、腦力激盪
+    "reasoning": "qwen",       # 數學、邏輯、程式、分析
+    "hard":      "gpt120b",    # 複雜多步驟、模糊困難問題
+    "search":    "compound",   # 需要即時資訊、新聞、價格
 }
 
-# Classifier prompt: trả về đúng 1 từ, không giải thích
 _CLASSIFIER_PROMPT = """Classify the user message into exactly one category.
 Reply with ONLY one word from this list, nothing else.
 
@@ -141,7 +131,7 @@ Categories:
 - creative  : writing, translation, summarization, brainstorming, roleplay
 - reasoning : math, logic, code, step-by-step analysis, comparison, explanation
 - hard      : ambiguous complex questions, multi-domain, requires deep thinking
-- search    : current events, prices, news, weather, "latest", "now", "today", real-time data
+- search    : current events, prices, news, weather, "latest", "now", "today"
 
 Message: {message}"""
 
@@ -149,8 +139,8 @@ Message: {message}"""
 async def classify_query(user_text: str) -> str:
     """
     Calls llama8b with max_tokens=3 to classify the query.
-    Returns a key in ROUTE_MAP, defaults to DEFAULT_MODEL_KEY on error.
-    Cost: negligible (~50 input tokens, 1 output token).
+    Returns a key in MODEL_REGISTRY. Falls back to DEFAULT_MODEL_KEY on error.
+    Cost: ~50 input tokens + 1 output token per call — negligible.
     """
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
@@ -161,11 +151,11 @@ async def classify_query(user_text: str) -> str:
                     {
                         "role": "user",
                         "content": _CLASSIFIER_PROMPT.format(
-                            message=user_text[:400]  # cap để tránh prompt injection
+                            message=user_text[:400]  # cap to prevent prompt injection
                         ),
                     }
                 ],
-                temperature=0.0,  # deterministic — luôn cùng output cho cùng input
+                temperature=0.0,  # deterministic
                 max_tokens=3,
             )
             category = resp.choices[0].message.content.strip().lower()
@@ -177,15 +167,13 @@ async def classify_query(user_text: str) -> str:
 async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
     """
     Returns (model_key, model_id).
-
-    Logic:
-    - Nếu user đã manually override model → respect lựa chọn đó
-    - Nếu user dùng default → auto-classify và route
+    - If user has manually chosen a model → respect that choice.
+    - If user is on default → auto-classify and route.
     """
     current_key = await get_user_model(user_id)
 
     if current_key != DEFAULT_MODEL_KEY:
-        # User đã chủ động chọn model — không override
+        # User explicitly chose a model — do not override
         return current_key, MODEL_REGISTRY[current_key]["model_id"]
 
     routed_key = await classify_query(user_text)
@@ -193,7 +181,7 @@ async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# DATABASE  (giữ nguyên logic, cải thiện history truncation)
+# DATABASE
 # ---------------------------------------------------------------------------
 async def init_db() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -211,8 +199,8 @@ async def init_db() -> None:
 
 async def get_history(user_id: str, max_chars: int = 4000) -> list[dict]:
     """
-    Lấy lịch sử hội thoại, giới hạn theo ký tự thay vì số lượng cố định.
-    Ưu tiên giữ tin nhắn gần nhất.
+    Fetch conversation history, capped by total characters (not fixed count).
+    Keeps the most recent messages when trimming.
     """
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
@@ -224,7 +212,7 @@ async def get_history(user_id: str, max_chars: int = 4000) -> list[dict]:
 
     messages = [{"role": r, "content": c} for r, c in reversed(rows)]
 
-    # Trim từ đầu nếu tổng vượt max_chars — giữ tin gần nhất
+    # Trim from oldest if total exceeds max_chars
     total, trimmed = 0, []
     for msg in reversed(messages):
         total += len(msg["content"])
@@ -252,6 +240,7 @@ async def get_user_model(user_id: str) -> str:
         ) as cur:
             row = await cur.fetchone()
     key = row[0] if row else DEFAULT_MODEL_KEY
+    # Guard against stale keys after registry changes
     return key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY
 
 
@@ -266,68 +255,98 @@ async def set_user_model(user_id: str, model_key: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# MARKDOWN STRIPPER
+# MARKDOWN STRIPPER  (defense layer after prompt)
 # ---------------------------------------------------------------------------
 def strip_markdown(text: str) -> str:
-    # Reasoning tags <think>...</think>
+    """Remove <think> blocks and common Markdown symbols for LINE output."""
+    # Reasoning tags <think>...</think> (multiline, possibly nested)
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+    # Fenced code blocks ```...``` → keep content, remove fences
     text = re.sub(r"```[a-zA-Z]*\n?", "", text)
     text = re.sub(r"```", "", text)
+
+    # Inline code `code` → just the word
     text = re.sub(r"`([^`]+)`", r"\1", text)
+
+    # Headings ## Title → Title
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+
+    # Bold/italic **text**, *text*, __text__, _text_ → text
     text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
     text = re.sub(r"_{1,2}([^_]+)_{1,2}", r"\1", text)
+
+    # Strikethrough ~~text~~ → text
     text = re.sub(r"~~([^~]+)~~", r"\1", text)
+
+    # Bullet lists "- item" / "* item" → "• item" (readable on LINE)
     text = re.sub(r"^[\-\*]\s+", "• ", text, flags=re.MULTILINE)
+
+    # Horizontal rules --- *** ___ → readable separator
     text = re.sub(r"^(\-{3,}|\*{3,}|_{3,})\s*$", "─────", text, flags=re.MULTILINE)
+
+    # Links [text](url) → text (url)
     text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
+
+    # Blockquotes > text → text
     text = re.sub(r"^>\s+", "", text, flags=re.MULTILINE)
+
+    # Collapse 3+ blank lines → 2
     text = re.sub(r"\n{3,}", "\n\n", text)
+
     return text.strip()
 
 
 # ---------------------------------------------------------------------------
 # GROQ CALLERS
 # ---------------------------------------------------------------------------
-async def call_groq_text(history: list[dict], model_id: str) -> str:
+async def call_groq_text(
+    history: list[dict],
+    model_id: str,
+    model_key: str = DEFAULT_MODEL_KEY,
+) -> str:
+    system = get_system_prompt(model_key)
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
             resp = await client.chat.completions.create(
                 model=model_id,
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}] + history,
+                messages=[{"role": "system", "content": system}] + history,
                 temperature=0.6,
                 max_tokens=800,
             )
             return strip_markdown(resp.choices[0].message.content or "")
         except Exception as e:
-            return f"⚠️ Lỗi [{model_id}]: {str(e)[:150]}"
+            return f"⚠️ 錯誤 [{model_id}]: {str(e)[:150]}"
 
 
 async def call_groq_vision(image_b64: str) -> str:
-    """Luôn dùng scout — model vision duy nhất trên Groq hiện tại."""
+    """Always uses scout — the only vision model on Groq."""
     model_id = MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"]
+    system   = get_system_prompt(VISION_MODEL_KEY)
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
             resp = await client.chat.completions.create(
                 model=model_id,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system},
                     {
                         "role": "user",
                         "content": [
                             {
                                 "type": "text",
                                 "text": (
-                                    "Phân tích và mô tả ảnh này chi tiết. "
-                                    "Nếu có chữ hãy trích xuất toàn bộ. "
-                                    "Nếu có chữ Trung hãy dùng Phồn thể."
+                                    "請詳細分析並描述這張圖片。"
+                                    "若有文字請完整擷取。"
+                                    "若有中文請使用繁體中文。"
                                 ),
                             },
                             {
                                 "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_b64}"
+                                },
                             },
                         ],
                     },
@@ -336,7 +355,7 @@ async def call_groq_vision(image_b64: str) -> str:
             )
             return strip_markdown(resp.choices[0].message.content or "")
         except Exception as e:
-            return f"⚠️ Lỗi vision: {str(e)[:150]}"
+            return f"⚠️ 視覺錯誤: {str(e)[:150]}"
 
 
 async def call_groq_whisper(audio_bytes: bytes) -> str:
@@ -349,14 +368,16 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
             )
             return result.text
         except Exception as e:
-            return f"⚠️ Lỗi Whisper: {str(e)[:150]}"
+            return f"⚠️ Whisper 錯誤: {str(e)[:150]}"
 
 
 # ---------------------------------------------------------------------------
 # COMMAND SYSTEM
 # ---------------------------------------------------------------------------
 def _models_list_text() -> str:
-    prod_lines, prev_lines = [], []
+    prod_lines: list[str] = []
+    prev_lines: list[str] = []
+
     for key, cfg in MODEL_REGISTRY.items():
         icon = {"vision": "👁", "reasoning": "🧠", "text": "💬"}.get(cfg["type"], "💬")
         line = f"{icon} /{key} — {cfg['display']}\n   {cfg['note']}"
@@ -365,21 +386,26 @@ def _models_list_text() -> str:
         else:
             prev_lines.append(line)
 
-    return "\n".join([
-        "📋 DANH SÁCH MODEL\n",
+    parts = [
+        "📋 可用模型列表\n",
         "── Production ──",
         *prod_lines,
         "\n── Preview ──",
         *prev_lines,
         "\n─────────────────",
-        "Chuyển model:  /model <tên>",
-        "Model hiện tại: /model",
-        "Xoá lịch sử:   /clear",
-        "Chế độ tự động: /auto",
-    ])
+        "切換模型：/model <名稱>",
+        "目前模型：/model",
+        "自動模式：/auto",
+        "清除紀錄：/clear",
+    ]
+    return "\n".join(parts)
 
 
 async def handle_command(user_id: str, text: str) -> str | None:
+    """
+    Parse slash commands.
+    Returns reply string if text is a command, else None.
+    """
     if not text.startswith("/"):
         return None
 
@@ -387,49 +413,62 @@ async def handle_command(user_id: str, text: str) -> str | None:
     cmd   = parts[0].lower()
     arg   = parts[1].strip() if len(parts) > 1 else ""
 
+    # /clear
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
             await db.commit()
-        return "🗑 Đã xoá lịch sử hội thoại."
+        return "🗑 對話記錄已清除。"
 
+    # /models
     if cmd == "models":
         return _models_list_text()
 
-    # /auto — reset về auto-routing
+    # /auto — reset to auto-routing
     if cmd == "auto":
         await set_user_model(user_id, DEFAULT_MODEL_KEY)
-        return "🤖 Đã bật chế độ tự động chọn model."
+        return "🤖 已切換至自動選擇模型模式。"
 
+    # /model [key]
     if cmd == "model":
         if not arg:
-            key = await get_user_model(user_id)
-            cfg = MODEL_REGISTRY[key]
-            mode = "Tự động" if key == DEFAULT_MODEL_KEY else "Thủ công"
+            key  = await get_user_model(user_id)
+            cfg  = MODEL_REGISTRY[key]
+            mode = "自動" if key == DEFAULT_MODEL_KEY else "手動"
             return (
-                f"🤖 Model hiện tại: {cfg['display']}\n"
-                f"   Tier: {cfg['tier']} | Chế độ: {mode}\n"
+                f"🤖 目前模型：{cfg['display']}\n"
+                f"   Tier：{cfg['tier']} | 模式：{mode}\n"
                 f"   {cfg['note']}\n\n"
-                "Dùng /models để xem tất cả.\n"
-                "Dùng /auto để về chế độ tự động."
+                "輸入 /models 查看全部。\n"
+                "輸入 /auto 返回自動模式。"
             )
         target = arg.lower()
         if target not in MODEL_REGISTRY:
-            return f"❌ /{target} không tồn tại.\nDùng /models để xem danh sách."
+            return f"❌ /{target} 不存在。\n請輸入 /models 查看清單。"
         await set_user_model(user_id, target)
-        return f"✅ Đã chuyển sang {MODEL_REGISTRY[target]['display']}.\nDùng /auto để về tự động."
+        return (
+            f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n"
+            "輸入 /auto 返回自動模式。"
+        )
 
+    # /<model_key> [one-shot question]
     if cmd in MODEL_REGISTRY:
         await set_user_model(user_id, cmd)
         cfg = MODEL_REGISTRY[cmd]
         if arg:
+            # One-shot: answer immediately without saving to history
             answer = await call_groq_text(
-                [{"role": "user", "content": arg}], cfg["model_id"]
+                [{"role": "user", "content": arg}],
+                cfg["model_id"],
+                model_key=cmd,
             )
             return f"[{cfg['display']}]\n{answer}"
-        return f"✅ Chuyển sang {cfg['display']}.\nDùng /auto để về tự động."
+        return (
+            f"✅ 已切換至 {cfg['display']}。\n"
+            "輸入 /auto 返回自動模式。"
+        )
 
-    return f"❓ Lệnh /{cmd} không hợp lệ. Dùng /models để xem."
+    return f"❓ 指令 /{cmd} 無效。請輸入 /models 查看。"
 
 
 # ---------------------------------------------------------------------------
@@ -468,6 +507,7 @@ async def process_event(event: MessageEvent) -> None:
         line_api      = AsyncMessagingApi(api_client)
         line_blob_api = AsyncMessagingApiBlob(api_client)
 
+        # Show loading indicator (best-effort, ignore failures)
         try:
             await line_api.show_loading_animation(
                 ShowLoadingAnimationRequest(chat_id=user_id, loading_seconds=10)
@@ -484,10 +524,10 @@ async def process_event(event: MessageEvent) -> None:
 
             if "⚠️" not in transcript:
                 await save_message(user_id, "user", f"[Voice]: {transcript}")
-                # Audio cũng đi qua auto-router như text thường
+                # Audio transcript goes through auto-router like normal text
                 model_key, model_id = await resolve_model(user_id, transcript)
                 history = await get_history(user_id)
-                answer  = await call_groq_text(history, model_id)
+                answer  = await call_groq_text(history, model_id, model_key=model_key)
                 await save_message(user_id, "assistant", answer)
                 reply = f"🎤 {transcript}\n\n{answer}"
             else:
@@ -497,7 +537,7 @@ async def process_event(event: MessageEvent) -> None:
         elif isinstance(event.message, ImageMessageContent):
             img_bytes = await line_blob_api.get_message_content(event.message.id)
             img_b64   = base64.b64encode(img_bytes).decode("utf-8")
-            # Vision luôn dùng scout — không cần route
+            # Vision always uses scout — no routing needed
             reply = await call_groq_vision(img_b64)
 
         # ── TEXT ───────────────────────────────────────────────────────────
@@ -511,12 +551,13 @@ async def process_event(event: MessageEvent) -> None:
                 await save_message(user_id, "user", user_text)
                 model_key, model_id = await resolve_model(user_id, user_text)
                 history = await get_history(user_id)
-                answer  = await call_groq_text(history, model_id)
+                answer  = await call_groq_text(history, model_id, model_key=model_key)
                 await save_message(user_id, "assistant", answer)
                 reply = answer
 
         # ── REPLY ──────────────────────────────────────────────────────────
         if reply:
+            # LINE hard-limit: 5000 chars per message
             reply = reply[:4990] + "…" if len(reply) > 4990 else reply
             await line_api.reply_message(
                 ReplyMessageRequest(
