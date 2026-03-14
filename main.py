@@ -396,21 +396,20 @@ def _next_fire(fire_at: int, repeat: str) -> int:
 
 
 _PARSE_REMINDER_PROMPT = """Extract reminder info from the user message.
-Current unix timestamp: {now}
-Current datetime (UTC+8): {now_str}
-IMPORTANT: All times are in UTC+8 timezone. fire_at must be a UTC+8 unix timestamp.
+Current datetime: {now_str}
 
 Reply ONLY with JSON, no explanation:
-{{"is_reminder": true/false, "message": "reminder content", "fire_at": unix_timestamp, "repeat": null or "daily" or "weekly" or "monthly"}}
+{{"is_reminder": true/false, "message": "reminder content", "time": "HH:MM", "date": "DD/MM/YYYY", "repeat": null or "daily" or "weekly" or "monthly"}}
 
 Rules:
-- fire_at must match the exact UTC+8 local time the user specified
-- "hôm nay/tonight/today" → same day in UTC+8
-- "ngày mai/tomorrow" → next day in UTC+8
+- Return time as HH:MM (24h format)
+- Return date as DD/MM/YYYY
+- "hôm nay/tonight/today" → use current date {date_str}
+- "ngày mai/tomorrow" → use tomorrow date {tomorrow_str}
 - "mỗi ngày/every day/daily" → repeat=daily
 - "mỗi tuần/every week/weekly" → repeat=weekly
 - "mỗi tháng/every month/monthly" → repeat=monthly
-- If no date + no repeat → assume today UTC+8, if time already passed → tomorrow
+- If no date + no repeat → use today {date_str}, if time already passed → use {tomorrow_str}
 - If not a reminder → is_reminder: false
 
 User message: {message}"""
@@ -421,8 +420,10 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
     Parse natural language reminder.
     Returns confirm string nếu tạo được, None nếu không phải reminder.
     """
-    now     = int(datetime.now(TZ).timestamp())
-    now_str = datetime.now(TZ).strftime("%H:%M %d/%m/%Y %A")
+    now_dt      = datetime.now(TZ)
+    now_str     = now_dt.strftime("%H:%M %d/%m/%Y %A")
+    date_str    = now_dt.strftime("%d/%m/%Y")
+    tomorrow_str = (now_dt + timedelta(days=1)).strftime("%d/%m/%Y")
 
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
@@ -432,11 +433,14 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
                 messages=[{
                     "role": "user",
                     "content": _PARSE_REMINDER_PROMPT.format(
-                        now=now, now_str=now_str, message=user_text[:300]
+                        now_str=now_str,
+                        date_str=date_str,
+                        tomorrow_str=tomorrow_str,
+                        message=user_text[:300]
                     ),
                 }],
                 temperature=0.0,
-                max_tokens=100,
+                max_tokens=60,
             )
             text = resp.choices[0].message.content or ""
             text = re.sub(r"```[a-z]*\n?|```", "", text).strip()
@@ -445,7 +449,19 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
             if not data.get("is_reminder"):
                 return None
 
-            fire_at = int(data["fire_at"])
+            # Python tự tính timestamp — không tin llama8b tính giờ
+            time_str = data.get("time", "08:00")
+            date_str2 = data.get("date", date_str)
+            hour, minute = map(int, time_str.split(":"))
+            day, month, year = map(int, date_str2.split("/"))
+            fire_dt_local = now_dt.replace(
+                year=year, month=month, day=day,
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+            # Nếu giờ đã qua hôm nay → tự động sang ngày mai
+            if fire_dt_local <= now_dt and not data.get("repeat"):
+                fire_dt_local += timedelta(days=1)
+            fire_at = int(fire_dt_local.timestamp())
             message = data["message"]
             repeat  = data.get("repeat")
 
