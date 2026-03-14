@@ -33,7 +33,8 @@ async def init_db():
 
 async def get_history(user_id: str):
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT role, content FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 10") as cur:
+        # ĐÃ FIX: Bổ sung tuple (user_id,)
+        async with db.execute("SELECT role, content FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 10", (user_id,)) as cur:
             rows = await cur.fetchall()
     return [{"role": r, "content": c} for r, c in reversed(rows)]
 
@@ -67,7 +68,7 @@ async def call_groq_vision(image_base64):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Kiểm tra và giải thích nội dung ảnh này (ưu tiên tiếng Phồn thể nếu là tiếng Trung)."},
+                        {"type": "text", "text": "Kiểm tra và giải thích nội dung ảnh này (ưu tiên tiếng Phồn thể如果這是中文)."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
                     ]
                 }
