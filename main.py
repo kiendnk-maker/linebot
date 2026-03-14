@@ -64,20 +64,20 @@ MODEL_REGISTRY: dict[str, dict] = {
         "note":     "最強推理，~500 t/s",
     },
     "compound": {
-        "model_id": "compound-beta",
+        "model_id": "groq/compound",
         "type":     "text",
         "tier":     "production",
         "display":  "Groq Compound（網路搜尋）",
         "ctx":      131_072,
-        "note":     "內建網路搜尋 + 程式執行",
+        "note":     "內建網路搜尋 + 程式執行，最多10次工具呼叫",
     },
     "compound-mini": {
-        "model_id": "compound-beta-mini",
+        "model_id": "groq/compound-mini",
         "type":     "text",
         "tier":     "production",
         "display":  "Groq Compound Mini",
         "ctx":      131_072,
-        "note":     "Compound 輕量版，單次工具呼叫",
+        "note":     "Compound 輕量版，單次工具呼叫，速度快3倍",
     },
     # ── Preview ─────────────────────────────────────────────────────────────
     "scout": {
@@ -110,18 +110,26 @@ DEFAULT_MODEL_KEY    = "llama70b"
 VISION_MODEL_KEY     = "scout"
 CLASSIFIER_MODEL_KEY = "llama8b"
 
+# Triggers kích hoạt LLM reply khi ghi âm
+_REPLY_TRIGGERS = ("hãy trả lời", "請回答我")
+
 # ---------------------------------------------------------------------------
 # AUTO-ROUTER
 # ---------------------------------------------------------------------------
-
-# Mapping classifier category → model key
 ROUTE_MAP: dict[str, str] = {
-    "simple":    "llama8b",    # 打招呼、是非題、簡短事實
-    "creative":  "llama70b",   # 寫作、翻譯、腦力激盪
-    "reasoning": "qwen",       # 數學、邏輯、程式、分析
-    "hard":      "gpt120b",    # 複雜多步驟、模糊困難問題
-    "search":    "compound",   # 需要即時資訊、新聞、價格
+    "simple":    "llama8b",
+    "creative":  "llama70b",
+    "reasoning": "qwen",
+    "hard":      "gpt120b",
+    "search":    "compound-mini",
 }
+
+# Keywords rõ ràng cần real-time → bypass classifier, dùng compound-mini
+_REALTIME_KEYWORDS = (
+    "hôm nay", "bây giờ", "hiện tại", "mới nhất", "today", "now", "latest",
+    "giá ", "price", "tỷ giá", "thời tiết", "weather", "tin tức", "news",
+    "今天", "現在", "最新", "價格", "新聞", "天氣",
+)
 
 _CLASSIFIER_PROMPT = """Classify the user message into exactly one category.
 Reply with ONLY one word from this list, nothing else.
@@ -134,6 +142,11 @@ Categories:
 - search    : current events, prices, news, weather, "latest", "now", "today"
 
 Message: {message}"""
+
+
+def _needs_realtime(text: str) -> bool:
+    text_lower = text.lower()
+    return any(kw in text_lower for kw in _REALTIME_KEYWORDS)
 
 
 async def classify_query(user_text: str) -> str:
@@ -151,11 +164,11 @@ async def classify_query(user_text: str) -> str:
                     {
                         "role": "user",
                         "content": _CLASSIFIER_PROMPT.format(
-                            message=user_text[:400]  # cap to prevent prompt injection
+                            message=user_text[:400]
                         ),
                     }
                 ],
-                temperature=0.0,  # deterministic
+                temperature=0.0,
                 max_tokens=3,
             )
             category = resp.choices[0].message.content.strip().lower()
@@ -167,14 +180,18 @@ async def classify_query(user_text: str) -> str:
 async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
     """
     Returns (model_key, model_id).
-    - If user has manually chosen a model → respect that choice.
-    - If user is on default → auto-classify and route.
+    Priority:
+    1. User manually chose a model → respect that choice.
+    2. Real-time keywords detected → compound-mini (no classifier call).
+    3. Default → auto-classify and route.
     """
     current_key = await get_user_model(user_id)
 
     if current_key != DEFAULT_MODEL_KEY:
-        # User explicitly chose a model — do not override
         return current_key, MODEL_REGISTRY[current_key]["model_id"]
+
+    if _needs_realtime(user_text):
+        return "compound-mini", MODEL_REGISTRY["compound-mini"]["model_id"]
 
     routed_key = await classify_query(user_text)
     return routed_key, MODEL_REGISTRY[routed_key]["model_id"]
@@ -212,7 +229,6 @@ async def get_history(user_id: str, max_chars: int = 4000) -> list[dict]:
 
     messages = [{"role": r, "content": c} for r, c in reversed(rows)]
 
-    # Trim from oldest if total exceeds max_chars
     total, trimmed = 0, []
     for msg in reversed(messages):
         total += len(msg["content"])
@@ -240,7 +256,6 @@ async def get_user_model(user_id: str) -> str:
         ) as cur:
             row = await cur.fetchone()
     key = row[0] if row else DEFAULT_MODEL_KEY
-    # Guard against stale keys after registry changes
     return key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY
 
 
@@ -255,45 +270,23 @@ async def set_user_model(user_id: str, model_key: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# MARKDOWN STRIPPER  (defense layer after prompt)
+# MARKDOWN STRIPPER
 # ---------------------------------------------------------------------------
 def strip_markdown(text: str) -> str:
     """Remove <think> blocks and common Markdown symbols for LINE output."""
-    # Reasoning tags <think>...</think> (multiline, possibly nested)
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-
-    # Fenced code blocks ```...``` → keep content, remove fences
     text = re.sub(r"```[a-zA-Z]*\n?", "", text)
     text = re.sub(r"```", "", text)
-
-    # Inline code `code` → just the word
     text = re.sub(r"`([^`]+)`", r"\1", text)
-
-    # Headings ## Title → Title
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-
-    # Bold/italic **text**, *text*, __text__, _text_ → text
     text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
     text = re.sub(r"_{1,2}([^_]+)_{1,2}", r"\1", text)
-
-    # Strikethrough ~~text~~ → text
     text = re.sub(r"~~([^~]+)~~", r"\1", text)
-
-    # Bullet lists "- item" / "* item" → "• item" (readable on LINE)
     text = re.sub(r"^[\-\*]\s+", "• ", text, flags=re.MULTILINE)
-
-    # Horizontal rules --- *** ___ → readable separator
     text = re.sub(r"^(\-{3,}|\*{3,}|_{3,})\s*$", "─────", text, flags=re.MULTILINE)
-
-    # Links [text](url) → text (url)
     text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
-
-    # Blockquotes > text → text
     text = re.sub(r"^>\s+", "", text, flags=re.MULTILINE)
-
-    # Collapse 3+ blank lines → 2
     text = re.sub(r"\n{3,}", "\n\n", text)
-
     return text.strip()
 
 
@@ -413,23 +406,19 @@ async def handle_command(user_id: str, text: str) -> str | None:
     cmd   = parts[0].lower()
     arg   = parts[1].strip() if len(parts) > 1 else ""
 
-    # /clear
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
             await db.commit()
         return "🗑 對話記錄已清除。"
 
-    # /models
     if cmd == "models":
         return _models_list_text()
 
-    # /auto — reset to auto-routing
     if cmd == "auto":
         await set_user_model(user_id, DEFAULT_MODEL_KEY)
         return "🤖 已切換至自動選擇模型模式。"
 
-    # /model [key]
     if cmd == "model":
         if not arg:
             key  = await get_user_model(user_id)
@@ -451,12 +440,10 @@ async def handle_command(user_id: str, text: str) -> str | None:
             "輸入 /auto 返回自動模式。"
         )
 
-    # /<model_key> [one-shot question]
     if cmd in MODEL_REGISTRY:
         await set_user_model(user_id, cmd)
         cfg = MODEL_REGISTRY[cmd]
         if arg:
-            # One-shot: answer immediately without saving to history
             answer = await call_groq_text(
                 [{"role": "user", "content": arg}],
                 cfg["model_id"],
@@ -507,7 +494,6 @@ async def process_event(event: MessageEvent) -> None:
         line_api      = AsyncMessagingApi(api_client)
         line_blob_api = AsyncMessagingApiBlob(api_client)
 
-        # Show loading indicator (best-effort, ignore failures)
         try:
             await line_api.show_loading_animation(
                 ShowLoadingAnimationRequest(chat_id=user_id, loading_seconds=10)
@@ -518,44 +504,41 @@ async def process_event(event: MessageEvent) -> None:
         reply = ""
 
         # ── AUDIO ──────────────────────────────────────────────────────────
-if isinstance(event.message, AudioMessageContent):
-    audio_bytes = await line_blob_api.get_message_content(event.message.id)
-    transcript  = await call_groq_whisper(audio_bytes)
+        if isinstance(event.message, AudioMessageContent):
+            audio_bytes = await line_blob_api.get_message_content(event.message.id)
+            transcript  = await call_groq_whisper(audio_bytes)
 
-    if "⚠️" not in transcript:
-        # Kiểm tra prefix kích hoạt trả lời
-        _REPLY_TRIGGERS = ("hãy trả lời", "請回答我")
-        wants_reply = any(
-            transcript.strip().lower().startswith(t.lower())
-            for t in _REPLY_TRIGGERS
-        )
+            if "⚠️" not in transcript:
+                wants_reply = any(
+                    transcript.strip().lower().startswith(t.lower())
+                    for t in _REPLY_TRIGGERS
+                )
 
-        if wants_reply:
-            # Bỏ prefix rồi mới lưu + trả lời
-            clean_text = transcript.strip()
-            for t in _REPLY_TRIGGERS:
-                if clean_text.lower().startswith(t.lower()):
-                    clean_text = clean_text[len(t):].strip()
-                    break
+                if wants_reply:
+                    # Strip trigger prefix trước khi xử lý
+                    clean_text = transcript.strip()
+                    for t in _REPLY_TRIGGERS:
+                        if clean_text.lower().startswith(t.lower()):
+                            clean_text = clean_text[len(t):].strip()
+                            break
 
-            await save_message(user_id, "user", clean_text)
-            model_key, model_id = await resolve_model(user_id, clean_text)
-            history = await get_history(user_id)
-            answer  = await call_groq_text(history, model_id, model_key=model_key)
-            await save_message(user_id, "assistant", answer)
-            reply = f"🎤 {clean_text}\n\n{answer}"
-        else:
-            # Chỉ transcribe — lưu vào history nhưng không gọi LLM
-            await save_message(user_id, "user", f"[Voice]: {transcript}")
-            reply = f"🎤 {transcript}"
-    else:
-        reply = transcript
+                    await save_message(user_id, "user", clean_text)
+                    model_key, model_id = await resolve_model(user_id, clean_text)
+                    history = await get_history(user_id)
+                    answer  = await call_groq_text(history, model_id, model_key=model_key)
+                    await save_message(user_id, "assistant", answer)
+                    reply = f"🎤 {clean_text}\n\n{answer}"
+                else:
+                    # Transcribe only — lưu history nhưng không gọi LLM
+                    await save_message(user_id, "user", f"[Voice]: {transcript}")
+                    reply = f"🎤 {transcript}"
+            else:
+                reply = transcript
 
         # ── IMAGE ──────────────────────────────────────────────────────────
         elif isinstance(event.message, ImageMessageContent):
             img_bytes = await line_blob_api.get_message_content(event.message.id)
             img_b64   = base64.b64encode(img_bytes).decode("utf-8")
-            # Vision always uses scout — no routing needed
             reply = await call_groq_vision(img_b64)
 
         # ── TEXT ───────────────────────────────────────────────────────────
@@ -575,7 +558,6 @@ if isinstance(event.message, AudioMessageContent):
 
         # ── REPLY ──────────────────────────────────────────────────────────
         if reply:
-            # LINE hard-limit: 5000 chars per message
             reply = reply[:4990] + "…" if len(reply) > 4990 else reply
             await line_api.reply_message(
                 ReplyMessageRequest(
