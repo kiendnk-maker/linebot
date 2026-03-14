@@ -397,18 +397,20 @@ def _next_fire(fire_at: int, repeat: str) -> int:
 
 _PARSE_REMINDER_PROMPT = """Extract reminder info from the user message.
 Current unix timestamp: {now}
-Current datetime: {now_str}
+Current datetime (UTC+8): {now_str}
+IMPORTANT: All times are in UTC+8 timezone. fire_at must be a UTC+8 unix timestamp.
 
 Reply ONLY with JSON, no explanation:
 {{"is_reminder": true/false, "message": "reminder content", "fire_at": unix_timestamp, "repeat": null or "daily" or "weekly" or "monthly"}}
 
 Rules:
-- "hôm nay/tonight/today" → same day
-- "ngày mai/tomorrow" → next day
+- fire_at must match the exact UTC+8 local time the user specified
+- "hôm nay/tonight/today" → same day in UTC+8
+- "ngày mai/tomorrow" → next day in UTC+8
 - "mỗi ngày/every day/daily" → repeat=daily
 - "mỗi tuần/every week/weekly" → repeat=weekly
 - "mỗi tháng/every month/monthly" → repeat=monthly
-- If no date + no repeat → assume today, if time already passed → tomorrow
+- If no date + no repeat → assume today UTC+8, if time already passed → tomorrow
 - If not a reminder → is_reminder: false
 
 User message: {message}"""
