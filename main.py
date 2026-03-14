@@ -518,20 +518,38 @@ async def process_event(event: MessageEvent) -> None:
         reply = ""
 
         # ── AUDIO ──────────────────────────────────────────────────────────
-        if isinstance(event.message, AudioMessageContent):
-            audio_bytes = await line_blob_api.get_message_content(event.message.id)
-            transcript  = await call_groq_whisper(audio_bytes)
+if isinstance(event.message, AudioMessageContent):
+    audio_bytes = await line_blob_api.get_message_content(event.message.id)
+    transcript  = await call_groq_whisper(audio_bytes)
 
-            if "⚠️" not in transcript:
-                await save_message(user_id, "user", f"[Voice]: {transcript}")
-                # Audio transcript goes through auto-router like normal text
-                model_key, model_id = await resolve_model(user_id, transcript)
-                history = await get_history(user_id)
-                answer  = await call_groq_text(history, model_id, model_key=model_key)
-                await save_message(user_id, "assistant", answer)
-                reply = f"🎤 {transcript}\n\n{answer}"
-            else:
-                reply = transcript
+    if "⚠️" not in transcript:
+        # Kiểm tra prefix kích hoạt trả lời
+        _REPLY_TRIGGERS = ("hãy trả lời", "請回答我")
+        wants_reply = any(
+            transcript.strip().lower().startswith(t.lower())
+            for t in _REPLY_TRIGGERS
+        )
+
+        if wants_reply:
+            # Bỏ prefix rồi mới lưu + trả lời
+            clean_text = transcript.strip()
+            for t in _REPLY_TRIGGERS:
+                if clean_text.lower().startswith(t.lower()):
+                    clean_text = clean_text[len(t):].strip()
+                    break
+
+            await save_message(user_id, "user", clean_text)
+            model_key, model_id = await resolve_model(user_id, clean_text)
+            history = await get_history(user_id)
+            answer  = await call_groq_text(history, model_id, model_key=model_key)
+            await save_message(user_id, "assistant", answer)
+            reply = f"🎤 {clean_text}\n\n{answer}"
+        else:
+            # Chỉ transcribe — lưu vào history nhưng không gọi LLM
+            await save_message(user_id, "user", f"[Voice]: {transcript}")
+            reply = f"🎤 {transcript}"
+    else:
+        reply = transcript
 
         # ── IMAGE ──────────────────────────────────────────────────────────
         elif isinstance(event.message, ImageMessageContent):
