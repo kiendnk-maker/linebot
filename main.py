@@ -539,7 +539,10 @@ async def process_event(event: MessageEvent) -> None:
         elif isinstance(event.message, ImageMessageContent):
             img_bytes = await line_blob_api.get_message_content(event.message.id)
             img_b64   = base64.b64encode(img_bytes).decode("utf-8")
-            reply = await call_groq_vision(img_b64)
+            answer    = await call_groq_vision(img_b64)
+            await save_message(user_id, "user", f"[Ảnh] {answer}")
+            await save_message(user_id, "assistant", answer)
+            reply = answer
 
         # ── TEXT ───────────────────────────────────────────────────────────
         elif isinstance(event.message, TextMessageContent):
