@@ -1,6 +1,8 @@
 import os, base64, aiosqlite, httpx, re, json, asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+TZ = ZoneInfo("Asia/Taipei")
 from groq import AsyncGroq
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -379,7 +381,7 @@ async def cancel_reminder(user_id: str, reminder_id: int) -> bool:
 
 
 def _next_fire(fire_at: int, repeat: str) -> int:
-    dt = datetime.fromtimestamp(fire_at)
+    dt = datetime.fromtimestamp(fire_at, tz=TZ)
     if repeat == "daily":
         dt += timedelta(days=1)
     elif repeat == "weekly":
@@ -417,8 +419,8 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
     Parse natural language reminder.
     Returns confirm string nếu tạo được, None nếu không phải reminder.
     """
-    now     = int(datetime.now().timestamp())
-    now_str = datetime.now().strftime("%H:%M %d/%m/%Y %A")
+    now     = int(datetime.now(TZ).timestamp())
+    now_str = datetime.now(TZ).strftime("%H:%M %d/%m/%Y %A")
 
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
@@ -447,7 +449,7 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
 
             rid = await save_reminder(user_id, message, fire_at, repeat)
 
-            fire_dt    = datetime.fromtimestamp(fire_at)
+            fire_dt    = datetime.fromtimestamp(fire_at, tz=TZ)
             repeat_str = {
                 "daily":   " (lặp hàng ngày)",
                 "weekly":  " (lặp hàng tuần)",
@@ -467,7 +469,7 @@ async def reminder_loop() -> None:
     """Background task — kiểm tra reminder mỗi 30 giây."""
     while True:
         await asyncio.sleep(30)
-        now = int(datetime.now().timestamp())
+        now = int(datetime.now(TZ).timestamp())
 
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.execute(
@@ -738,7 +740,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
                     rest   = rest[len(kw):].strip()
                     break
 
-            now_dt  = datetime.now()
+            now_dt  = datetime.now(TZ)
             fire_dt = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if fire_dt <= now_dt:
                 fire_dt += timedelta(days=1)
