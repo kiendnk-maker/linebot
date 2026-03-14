@@ -136,10 +136,12 @@ Reply with ONLY one word from this list, nothing else.
 
 Categories:
 - simple    : greetings, chitchat, yes/no, very short factual (name, date)
-- creative  : writing, translation, summarization, brainstorming, roleplay
+- creative  : writing, translation, summarization, brainstorming, roleplay,
+              long text analysis, summarize this, tóm tắt, phân tích đoạn văn
 - reasoning : math, logic, code, step-by-step analysis, comparison, explanation
 - hard      : ambiguous complex questions, multi-domain, requires deep thinking
 - search    : current events, prices, news, weather, "latest", "now", "today"
+              ONLY use this if the question requires real-time internet data
 
 Message: {message}"""
 
@@ -316,7 +318,21 @@ async def call_groq_text(
             )
             return strip_markdown(resp.choices[0].message.content or "")
         except Exception as e:
-            return f"⚠️ 錯誤 [{model_id}]: {str(e)[:150]}"
+            err = str(e)
+            # Compound 400 error → fallback to llama70b
+            if "400" in err and model_id.startswith("groq/compound"):
+                fallback_id = MODEL_REGISTRY["llama70b"]["model_id"]
+                try:
+                    resp = await client.chat.completions.create(
+                        model=fallback_id,
+                        messages=[{"role": "system", "content": system}] + clean_history,
+                        temperature=0.6,
+                        max_tokens=800,
+                    )
+                    return strip_markdown(resp.choices[0].message.content or "")
+                except Exception as e2:
+                    return f"⚠️ 錯誤 [{fallback_id}]: {str(e2)[:150]}"
+            return f"⚠️ 錯誤 [{model_id}]: {err[:150]}"
 
 
 async def call_groq_vision(image_b64: str) -> str:
