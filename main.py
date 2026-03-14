@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from linebot.v3 import WebhookParser
 from linebot.v3.messaging import (
-    AsyncApiClient, AsyncMessagingApi, Configuration, 
+    AsyncApiClient, AsyncMessagingApi, AsyncMessagingApiBlob, Configuration, 
     ReplyMessageRequest, TextMessage, ShowLoadingAnimationRequest
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, ImageMessageContent, AudioMessageContent
@@ -21,7 +21,6 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 DB_PATH = "chat_history.db"
 
-# Model constants (Đã lọc model tối ưu nhất)
 TEXT_MODEL = "llama-3.3-70b-versatile"
 VISION_MODEL = "llama-3.2-11b-vision-preview"
 WHISPER_MODEL = "whisper-large-v3"
@@ -43,7 +42,7 @@ async def save_message(user_id: str, role: str, content: str):
         await db.execute("INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, content))
         await db.commit()
 
-# --- ASYNC GROQ HANDLERS (Tối ưu I/O & Bẫy lỗi) ---
+# --- ASYNC GROQ HANDLERS ---
 async def call_groq_text(history):
     async with httpx.AsyncClient() as http_client:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http_client)
@@ -79,7 +78,6 @@ async def call_groq_whisper(audio_bytes):
     async with httpx.AsyncClient() as http_client:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http_client)
         try:
-            # Truyền thẳng bytes vào RAM, bỏ qua việc tạo file tạm (tempfile) để tăng tốc độ
             translation = await client.audio.transcriptions.create(
                 file=("audio.m4a", audio_bytes), 
                 model=WHISPER_MODEL
@@ -116,6 +114,7 @@ async def process_event(event):
     user_id = event.source.user_id
     async with AsyncApiClient(line_config) as api_client:
         line_api = AsyncMessagingApi(api_client)
+        line_blob_api = AsyncMessagingApiBlob(api_client)  # <-- Đã thêm API tải file
         
         try:
             await line_api.show_loading_animation(ShowLoadingAnimationRequest(chat_id=user_id, loading_seconds=5))
@@ -123,9 +122,10 @@ async def process_event(event):
         
         reply = ""
         
-        # 1. XỬ LÝ GHI ÂM (WHISPER - SIÊU TỐC)
+        # 1. XỬ LÝ GHI ÂM
         if isinstance(event.message, AudioMessageContent):
-            audio_content = await line_api.get_message_content(event.message.id)
+            # Sử dụng line_blob_api thay vì line_api
+            audio_content = await line_blob_api.get_message_content(event.message.id)
             text_from_voice = await call_groq_whisper(audio_content)
             
             if "⚠️" not in text_from_voice:
@@ -136,13 +136,14 @@ async def process_event(event):
             else:
                 reply = text_from_voice
         
-        # 2. XỬ LÝ ẢNH (VISION)
+        # 2. XỬ LÝ ẢNH
         elif isinstance(event.message, ImageMessageContent):
-            img_content = await line_api.get_message_content(event.message.id)
+            # Sử dụng line_blob_api thay vì line_api
+            img_content = await line_blob_api.get_message_content(event.message.id)
             img_b64 = base64.b64encode(img_content).decode('utf-8')
             reply = await call_groq_vision(img_b64)
         
-        # 3. XỬ LÝ VĂN BẢN & LỆNH
+        # 3. XỬ LÝ VĂN BẢN
         elif isinstance(event.message, TextMessageContent):
             user_text = event.message.text.strip()
             
@@ -157,7 +158,6 @@ async def process_event(event):
                 reply = await call_groq_text(history)
                 await save_message(user_id, "assistant", reply)
 
-        # PHẢN HỒI LẠI LINE
         if reply:
             await line_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token, 
