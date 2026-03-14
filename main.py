@@ -22,8 +22,8 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 DB_PATH = "chat_history.db"
 
 TEXT_MODEL = "llama-3.3-70b-versatile"
-VISION_MODEL = "llama-3.2-11b-vision-preview"
-WHISPER_MODEL = "whisper-large-v3"
+VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+WHISPER_MODEL = "whisper-large-v3-turbo"
 
 # --- DATABASE HELPERS ---
 async def init_db():
@@ -62,14 +62,21 @@ async def call_groq_vision(image_base64):
     async with httpx.AsyncClient() as http_client:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http_client)
         try:
-            messages = [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Kiểm tra và giải thích nội dung ảnh này (ưu tiên tiếng Phồn thể nếu là tiếng Trung)."},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
-                ]
-            }]
-            resp = await client.chat.completions.create(model=VISION_MODEL, messages=messages, max_tokens=800)
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Kiểm tra và giải thích nội dung ảnh này (ưu tiên tiếng Phồn thể nếu là tiếng Trung)."},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+                    ]
+                }
+            ]
+            resp = await client.chat.completions.create(
+                model=VISION_MODEL, 
+                messages=messages, 
+                max_tokens=800
+            )
             return resp.choices[0].message.content
         except Exception as e:
             return f"⚠️ Lỗi phân tích ảnh: {str(e)[:100]}"
@@ -114,7 +121,7 @@ async def process_event(event):
     user_id = event.source.user_id
     async with AsyncApiClient(line_config) as api_client:
         line_api = AsyncMessagingApi(api_client)
-        line_blob_api = AsyncMessagingApiBlob(api_client)  # <-- Đã thêm API tải file
+        line_blob_api = AsyncMessagingApiBlob(api_client)
         
         try:
             await line_api.show_loading_animation(ShowLoadingAnimationRequest(chat_id=user_id, loading_seconds=5))
@@ -124,7 +131,6 @@ async def process_event(event):
         
         # 1. XỬ LÝ GHI ÂM
         if isinstance(event.message, AudioMessageContent):
-            # Sử dụng line_blob_api thay vì line_api
             audio_content = await line_blob_api.get_message_content(event.message.id)
             text_from_voice = await call_groq_whisper(audio_content)
             
@@ -138,7 +144,6 @@ async def process_event(event):
         
         # 2. XỬ LÝ ẢNH
         elif isinstance(event.message, ImageMessageContent):
-            # Sử dụng line_blob_api thay vì line_api
             img_content = await line_blob_api.get_message_content(event.message.id)
             img_b64 = base64.b64encode(img_content).decode('utf-8')
             reply = await call_groq_vision(img_b64)
