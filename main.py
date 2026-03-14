@@ -843,13 +843,17 @@ async def process_event(event: MessageEvent) -> None:
                         if clean_text.lower().startswith(t.lower()):
                             clean_text = clean_text[len(t):].strip()
                             break
-                    await save_message(user_id, "user", clean_text)
-                    model_key, model_id = await resolve_model(user_id, clean_text)
-                    history = await get_history_with_summary(user_id)
-                    answer  = await call_groq_text(history, model_id, model_key=model_key)
-                    await save_message(user_id, "assistant", answer)
-                    await maybe_summarize(user_id)
-                    reply = f"🎤 {clean_text}\n\n{answer}"
+                    reminder_reply = await parse_reminder_nlp(user_id, clean_text)
+                    if reminder_reply:
+                        reply = f"🎤 {clean_text}\n\n{reminder_reply}"
+                    else:
+                        await save_message(user_id, "user", clean_text)
+                        model_key, model_id = await resolve_model(user_id, clean_text)
+                        history = await get_history_with_summary(user_id)
+                        answer  = await call_groq_text(history, model_id, model_key=model_key)
+                        await save_message(user_id, "assistant", answer)
+                        await maybe_summarize(user_id)
+                        reply = f"🎤 {clean_text}\n\n{answer}"
                 else:
                     await save_message(user_id, "user", f"[Voice]: {transcript}")
                     reply = f"🎤 {transcript}"
