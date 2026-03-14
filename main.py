@@ -299,12 +299,18 @@ async def call_groq_text(
     model_key: str = DEFAULT_MODEL_KEY,
 ) -> str:
     system = get_system_prompt(model_key)
+
+    # Compound models require last message role to be "user"
+    clean_history = list(history)
+    while clean_history and clean_history[-1]["role"] == "assistant":
+        clean_history.pop()
+
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
             resp = await client.chat.completions.create(
                 model=model_id,
-                messages=[{"role": "system", "content": system}] + history,
+                messages=[{"role": "system", "content": system}] + clean_history,
                 temperature=0.6,
                 max_tokens=800,
             )
