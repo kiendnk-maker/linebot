@@ -20,7 +20,6 @@ SYSTEM_PROMPT = """你是「Groq哥哥」，來自台灣的專業中文老師，
 風格：專業、親切。"""
 
 
-# Append khi route sang reasoning models (qwen, gpt120b, gpt20b)
 REASONING_SUFFIX = """
 
 【推理模式】
@@ -29,7 +28,6 @@ REASONING_SUFFIX = """
 - 答案要完整，不因推理模型限制而截斷。"""
 
 
-# Append khi route sang creative tasks (llama70b)
 CREATIVE_SUFFIX = """
 
 【創意模式】
@@ -38,7 +36,6 @@ CREATIVE_SUFFIX = """
 - 翻譯時保留原文語氣與風格。"""
 
 
-# Append khi route sang search/compound models
 SEARCH_SUFFIX = """
 
 【搜尋模式】
