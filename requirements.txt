@@ -4,3 +4,4 @@ line-bot-sdk
 groq
 aiosqlite
 httpx
+tzdata

@@ -717,7 +717,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 return "📭 Không có nhắc nhở nào đang chờ."
             lines = ["📋 Danh sách nhắc nhở:\n"]
             for r in reminders:
-                dt = datetime.fromtimestamp(r["fire_at"])
+                dt = datetime.fromtimestamp(r["fire_at"], tz=TZ)
                 repeat_label = {
                     "daily":   " 🔁 hàng ngày",
                     "weekly":  " 🔁 hàng tuần",
