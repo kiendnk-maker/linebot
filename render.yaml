@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: line-groq-bot
+    runtime: docker
+    plan: free
+    envVars:
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
