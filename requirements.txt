@@ -1,5 +1,6 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-line-bot-sdk==3.11.0
-groq==0.11.0
-aiosqlite==0.20.0
+fastapi
+uvicorn[standard]
+line-bot-sdk
+groq
+aiosqlite
+httpx
