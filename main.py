@@ -197,9 +197,12 @@ import re
 
 def strip_markdown(text: str) -> str:
     """
-    Remove common Markdown symbols that look ugly in LINE chat.
+    Remove <think>...</think> blocks and common Markdown symbols.
     Preserves newlines and normal punctuation.
     """
+    # Reasoning tags  <think>...</think>  (có thể multiline, có thể lồng nhau)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
     # Fenced code blocks  ```...```  → keep content, remove fences
     text = re.sub(r"```[a-zA-Z]*\n?", "", text)
     text = re.sub(r"```", "", text)
