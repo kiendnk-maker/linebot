@@ -1197,6 +1197,115 @@ async def run_pro_workflow(user_id: str, task: str) -> str:
 {final_answer}"
 
 
+
+import json
+import datetime
+
+# 1. Định nghĩa các công cụ thực tế (Python Functions)
+def get_current_time() -> str:
+    """Trả về thời gian hiện tại của hệ thống."""
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def calculate_math(expression: str) -> str:
+    """Tính toán biểu thức toán học an toàn."""
+    try:
+        # Chỉ cho phép tính toán cơ bản để tránh rủi ro bảo mật
+        allowed_chars = "0123456789+-*/(). "
+        if any(char not in allowed_chars for char in expression):
+            return "Lỗi: Biểu thức chứa ký tự không hợp lệ."
+        return str(eval(expression))
+    except Exception as e:
+        return f"Lỗi tính toán: {str(e)}"
+
+# Dictionary mapping tên công cụ với hàm Python
+AVAILABLE_TOOLS = {
+    "get_current_time": get_current_time,
+    "calculate_math": calculate_math
+}
+
+# 2. Định nghĩa Schema của Tools cho LLM hiểu
+AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_time",
+            "description": "Lấy ngày và giờ hiện tại của hệ thống.",
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate_math",
+            "description": "Tính toán một biểu thức toán học (ví dụ: 15 * 24 + 100). Trả về kết quả chính xác.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string", "description": "Biểu thức toán học cần tính"}
+                },
+                "required": ["expression"]
+            }
+        }
+    }
+]
+
+# 3. Vòng lặp Agentic (Core Logic)
+async def run_agentic_loop(user_id: str, prompt: str) -> str:
+    messages = [
+        {"role": "system", "content": "Bạn là một Agent tự trị. Bạn CÓ THỂ sử dụng các công cụ được cung cấp để tìm kiếm thông tin hoặc tính toán trước khi trả lời. Hãy suy nghĩ từng bước."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    max_iterations = 5 # Giới hạn số vòng lặp để tránh treo hệ thống
+    
+    for iteration in range(max_iterations):
+        try:
+            # Gọi Groq API (sử dụng Llama 3.3 70B vì nó hỗ trợ Tool Calling rất tốt)
+            resp = await client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                tools=AGENT_TOOLS,
+                tool_choice="auto"
+            )
+            
+            response_message = resp.choices[0].message
+            
+            # Nếu LLM không gọi công cụ nào -> Nó đã có câu trả lời cuối cùng
+            if not response_message.tool_calls:
+                return f"🤖 [AGENTIC MODE]
+──────────────
+{response_message.content}"
+            
+            # Nếu LLM quyết định gọi công cụ -> Thực thi vòng lặp
+            messages.append(response_message) # Lưu lại quyết định của AI
+            
+            for tool_call in response_message.tool_calls:
+                func_name = tool_call.function.name
+                func_args = json.loads(tool_call.function.arguments)
+                
+                # Thực thi hàm Python tương ứng
+                func_to_call = AVAILABLE_TOOLS.get(func_name)
+                if func_to_call:
+                    if func_name == "calculate_math":
+                        func_result = func_to_call(func_args.get("expression"))
+                    else:
+                        func_result = func_to_call()
+                else:
+                    func_result = f"Error: Tool {func_name} not found."
+                
+                # Gửi kết quả của công cụ ngược lại cho AI
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": func_name,
+                    "content": str(func_result)
+                })
+                
+        except Exception as e:
+            return f"⚠️ Lỗi Agent: {str(e)}"
+            
+    return "⚠️ Lỗi: Agent đã vượt quá số vòng lặp tối đa mà không thể hoàn thành nhiệm vụ."
+
+
 async def handle_command(user_id: str, text: str) -> str | None:
     if not text.startswith("/"):
         return None
@@ -1212,6 +1321,12 @@ async def handle_command(user_id: str, text: str) -> str | None:
         if not arg:
             return "⚠️ Vui lòng nhập yêu cầu phức tạp. Ví dụ: /pro Phân tích ưu nhược điểm của việc học Thạc sĩ tại Đài Loan"
         return await run_pro_workflow(user_id, arg)
+
+
+    if cmd == "agent":
+        if not arg:
+            return "⚠️ Vui lòng nhập nhiệm vụ. Ví dụ: /agent Bây giờ là mấy giờ? Tính giúp tôi 12345 * 6789"
+        return await run_agentic_loop(user_id, arg)
 
     if cmd == "dev":
         if not arg:
