@@ -17,6 +17,7 @@ from linebot.v3 import WebhookParser
 from linebot.v3.messaging import (
     AsyncApiClient, AsyncMessagingApi, AsyncMessagingApiBlob, Configuration,
     ReplyMessageRequest, PushMessageRequest, TextMessage, ShowLoadingAnimationRequest,
+    QuickReply, QuickReplyItem, MessageAction,
 )
 from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, ImageMessageContent,
@@ -1969,14 +1970,42 @@ async def process_event(event: MessageEvent) -> None:
 
         # ── LAYER 4: REPLY ─────────────────────────────────────────────────
         if reply:
-            reply = strip_markdown(reply)
-            chunks = _split_reply(reply)
-            await line_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=c) for c in chunks],
+            # Handle dict reply with Quick Reply buttons (e.g. from /ls mail)
+            if isinstance(reply, dict):
+                text_content = strip_markdown(reply.get("text", ""))
+                chunks = _split_reply(text_content)
+                qr_data = reply.get("quickReply")
+                messages = [TextMessage(text=c) for c in chunks]
+                # Attach Quick Reply to last message
+                if qr_data and messages:
+                    qr_items = []
+                    for item in qr_data.get("items", []):
+                        act = item.get("action", {})
+                        qr_items.append(
+                            QuickReplyItem(
+                                action=MessageAction(
+                                    label=act.get("label", ""),
+                                    text=act.get("text", ""),
+                                )
+                            )
+                        )
+                    if qr_items:
+                        messages[-1].quick_reply = QuickReply(items=qr_items)
+                await line_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=messages,
+                    )
                 )
-            )
+            else:
+                reply = strip_markdown(reply)
+                chunks = _split_reply(reply)
+                await line_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=c) for c in chunks],
+                    )
+                )
 # Last Fix: Mon Mar 16 03:58:20 CST 2026
 # Fix scope at Mon Mar 16 04:03:44 CST 2026
 # Fix OAuth UX: Mon Mar 16 04:08:53 CST 2026
