@@ -179,7 +179,6 @@ async def classify_query(user_text: str) -> str:
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
-            start_time = time.perf_counter()
             resp = await client.chat.completions.create(
                 model=MODEL_REGISTRY[CLASSIFIER_MODEL_KEY]["model_id"],
                 messages=[{
@@ -304,7 +303,6 @@ async def init_db() -> None:
             " chunk_count INTEGER NOT NULL, "
             " uploaded_at INTEGER NOT NULL)"
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
 
 
@@ -328,7 +326,6 @@ async def set_user_model(user_id: str, model_key: str) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET model_key = excluded.model_key",
             (user_id, model_key),
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
 
 
@@ -348,7 +345,6 @@ async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET max_tokens = excluded.max_tokens",
             (user_id, max_tokens),
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
 
 
@@ -382,7 +378,6 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
                     f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
                     (value, user_id),
                 )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
 
 
@@ -408,7 +403,6 @@ async def save_message(user_id: str, role: str, content: str) -> None:
             "INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)",
             (user_id, role, content),
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
 
 
@@ -452,7 +446,6 @@ async def save_summary(user_id: str, content: str) -> None:
             "content = excluded.content, updated_at = excluded.updated_at",
             (user_id, content, int(time.time())),
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
 
 
@@ -478,7 +471,6 @@ async def maybe_summarize(user_id: str) -> None:
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
-            start_time = time.perf_counter()
             resp = await client.chat.completions.create(
                 model=MODEL_REGISTRY["llama8b"]["model_id"],
                 messages=[{"role": "user", "content": prompt}],
@@ -515,7 +507,6 @@ async def save_reminder(
             "INSERT INTO reminders (user_id, message, fire_at, repeat) VALUES (?, ?, ?, ?)",
             (user_id, message, fire_at, repeat),
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
         return cur.lastrowid  # type: ignore[return-value]
 
@@ -537,7 +528,6 @@ async def cancel_reminder(user_id: str, reminder_id: int) -> bool:
             "UPDATE reminders SET done = 1 WHERE id = ? AND user_id = ? AND done = 0",
             (reminder_id, user_id),
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
         return cur.rowcount > 0
 
@@ -605,7 +595,6 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
-            start_time = time.perf_counter()
             resp = await client.chat.completions.create(
                 model=MODEL_REGISTRY["llama8b"]["model_id"],
                 messages=[{
@@ -704,8 +693,7 @@ async def reminder_loop() -> None:
                 else:
                     await db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rid,))
 
-            await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
-        await db.commit()
+            await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -802,7 +790,6 @@ async def save_rag_doc(user_id: str, filename: str, chunk_count: int) -> None:
             "VALUES (?, ?, ?, ?)",
             (user_id, filename, chunk_count, int(time.time())),
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
 
 
@@ -837,7 +824,6 @@ async def delete_rag_doc(user_id: str, filename: str) -> bool:
             "DELETE FROM rag_docs WHERE user_id = ? AND filename = ?",
             (user_id, filename),
         )
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
         if cur.rowcount == 0:
             return False
@@ -861,7 +847,6 @@ async def clear_rag_docs(user_id: str) -> int:
     docs = await list_rag_docs(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM rag_docs WHERE user_id = ?", (user_id,))
-        await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
         await db.commit()
 
     lock = await _get_chroma_lock(user_id)
@@ -1003,7 +988,6 @@ async def call_groq_text(
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
-            start_time = time.perf_counter()
             resp = await client.chat.completions.create(
                 model=model_id,
                 messages=[{"role": "system", "content": system}] + clean_history,
@@ -1018,8 +1002,7 @@ async def call_groq_text(
             if "400" in err and model_id.startswith("groq/compound"):
                 fallback_id = MODEL_REGISTRY["llama70b"]["model_id"]
                 try:
-                    start_time = time.perf_counter()
-            resp = await client.chat.completions.create(
+                    resp = await client.chat.completions.create(
                         model=fallback_id,
                         messages=[{"role": "system", "content": system}] + clean_history,
                         temperature=0.6,
@@ -1037,7 +1020,6 @@ async def call_groq_vision(image_b64: str) -> str:
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
-            start_time = time.perf_counter()
             resp = await client.chat.completions.create(
                 model=model_id,
                 messages=[
@@ -1085,7 +1067,6 @@ async def clean_transcript(transcript: str) -> str:
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
-            start_time = time.perf_counter()
             resp = await client.chat.completions.create(
                 model=MODEL_REGISTRY["gpt120b"]["model_id"],
                 messages=[{
@@ -1187,28 +1168,11 @@ async def handle_command(user_id: str, text: str) -> str | None:
             return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /dev Viết hàm Python tính dãy Fibonacci"
         return await run_multi_agent_workflow(user_id, arg)
 
-
-    if cmd == "stats":
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute("SELECT COUNT(*), AVG(latency), AVG(prompt_len) FROM metrics WHERE timestamp > ?", (int(time.time()) - 86400,)) as cur:
-                row = await cur.fetchone()
-            async with db.execute("SELECT model_id, COUNT(*) as c FROM metrics GROUP BY model_id ORDER BY c DESC LIMIT 1") as cur:
-                m_row = await cur.fetchone()
-        
-        if not row or row[0] == 0: return "📊 Chưa có dữ liệu giám sát trong 24h qua."
-        fav_model = m_row[0] if m_row else "N/A"
-        return (f"📊 BÁO CÁO LLMOPS (24H QUA)\n"
-                f"• Tổng request: {row[0]}\n"
-                f"• Độ trễ TB: {row[1]:.2f}s\n"
-                f"• Độ dài Prompt TB: {int(row[2])} ký tự\n"
-                f"• Model dùng nhiều nhất: {fav_model}")
-
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
             await db.execute("DELETE FROM summary WHERE user_id = ?", (user_id,))
-            await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
-        await db.commit()
+            await db.commit()
         return "🗑 對話記錄已清除。"
 
     # ── MODELS ─────────────────────────────────────────────────────────────
@@ -1259,8 +1223,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
         if arg == "clear":
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM user_profile WHERE user_id = ?", (user_id,))
-                await db.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, model_id TEXT, latency REAL, prompt_len INTEGER, timestamp INTEGER)")
-        await db.commit()
+                await db.commit()
             return "🗑 Đã xoá thông tin cá nhân."
 
         profile = await get_user_profile(user_id)
