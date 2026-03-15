@@ -462,7 +462,7 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
             if fire_dt_local <= now_dt and not data.get("repeat"):
                 fire_dt_local += timedelta(days=1)
             fire_at = int(fire_dt_local.timestamp())
-            message = data["message"]
+            message = transcript  # dùng transcript đã clean bởi gpt120b
             repeat  = data.get("repeat")
 
             rid = await save_reminder(user_id, message, fire_at, repeat)
