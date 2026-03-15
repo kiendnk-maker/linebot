@@ -288,59 +288,6 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
         await db.commit()
 
 
-
-
-async def get_user_max_tokens(user_id: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT max_tokens FROM user_settings2 WHERE user_id = ?",
-            (user_id,),
-        ) as cur:
-            row = await cur.fetchone()
-    return row[0] if row else 800
-
-
-async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO user_settings2 (user_id, max_tokens) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET max_tokens = excluded.max_tokens",
-            (user_id, max_tokens),
-        )
-        await db.commit()
-
-
-async def get_user_profile(user_id: str) -> dict:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT name, occupation, learning, notes FROM user_profile WHERE user_id = ?",
-            (user_id,),
-        ) as cur:
-            row = await cur.fetchone()
-    if not row:
-        return {}
-    keys = ["name", "occupation", "learning", "notes"]
-    return {k: v for k, v in zip(keys, row) if v}
-
-
-async def save_user_profile(user_id: str, **kwargs) -> None:
-    if not kwargs:
-        return
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO user_profile (user_id) VALUES (?) "
-            "ON CONFLICT(user_id) DO NOTHING",
-            (user_id,),
-        )
-        for key, value in kwargs.items():
-            if key in ("name", "occupation", "learning", "notes"):
-                await db.execute(
-                    f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
-                    (value, user_id),
-                )
-        await db.commit()
-
-
 async def build_system_prompt(user_id: str, model_key: str) -> str:
     base = get_system_prompt(model_key)
     profile = await get_user_profile(user_id)
