@@ -1259,9 +1259,7 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
             
             # Nếu LLM không gọi công cụ nào -> Nó đã có câu trả lời cuối cùng
             if not response_message.tool_calls:
-                return f"🤖 [AGENTIC MODE]
-──────────────
-{response_message.content}"
+                return f"🤖 [AGENTIC MODE]\n──────────────\n{response_message.content}"
             
             # Nếu LLM quyết định gọi công cụ -> Thực thi vòng lặp
             messages.append(response_message) # Lưu lại quyết định của AI
