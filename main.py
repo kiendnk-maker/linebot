@@ -486,20 +486,24 @@ def _next_fire(fire_at: int, repeat: str) -> int:
 
 
 _PARSE_REMINDER_PROMPT = """Extract reminder info from the user message.
-Current unix timestamp: {now}
-Current datetime: {now_str}
+Current datetime (UTC+8): {now_str}
 
 Reply ONLY with JSON, no explanation:
-{{"is_reminder": true/false, "message": "reminder content", "fire_at": unix_timestamp, "repeat": null or "daily" or "weekly" or "monthly"}}
+{{"is_reminder": true/false, "message": "reminder content", "time": "HH:MM or null", "date": "DD/MM/YYYY", "repeat": null or "daily" or "weekly" or "monthly"}}
 
 Rules:
-- "hôm nay/tonight/today" → same day
-- "ngày mai/tomorrow" → next day
-- "mỗi ngày/every day/daily" → repeat=daily
-- "mỗi tuần/every week/weekly" → repeat=weekly
-- "mỗi tháng/every month/monthly" → repeat=monthly
-- If no date + no repeat → assume today, if time already passed → tomorrow
-- If not a reminder → is_reminder: false
+- Return time as HH:MM 24h format. If no specific time return null
+- Convert Vietnamese/AM/PM time: 7h toi/chieu/evening = 19:00, 8h toi = 20:00, 7h sang/morning = 07:00, 12h trua/noon = 12:00, 12h dem/midnight = 00:00
+- Return date as DD/MM/YYYY
+- hom nay/tonight/today = {date_str}
+- ngay mai/tomorrow = {tomorrow_str}
+- moi ngay/every day/daily = repeat=daily
+- moi tuan/every week/weekly = repeat=weekly
+- moi thang/every month/monthly = repeat=monthly
+- If no date + no repeat use {date_str}, if time passed use {tomorrow_str}
+- Set is_reminder=true if user mentions scheduled event with time even without explicit remind keyword
+- Examples: toi co hop luc 14h, I have meeting at 2pm, ngay mai co thuyet trinh = is_reminder=true
+- If not a reminder = is_reminder: false
 
 User message: {message}"""
 
@@ -888,7 +892,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 return "📭 Không có nhắc nhở nào đang chờ."
             lines = ["📋 Danh sách nhắc nhở:\n"]
             for r in reminders:
-                dt = datetime.fromtimestamp(r["fire_at"])
+                dt = datetime.fromtimestamp(r["fire_at"], tz=TZ)
                 repeat_label = {
                     "daily":   " 🔁 hàng ngày",
                     "weekly":  " 🔁 hàng tuần",
