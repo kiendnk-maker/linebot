@@ -260,17 +260,6 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
         await db.commit()
 
 
-async def build_system_prompt(user_id: str, model_key: str) -> str:
-    base = get_system_prompt(model_key)
-    profile = await get_user_profile(user_id)
-    if not profile:
-        return base
-    lines = []
-    if profile.get("name"):       lines.append("\u7528\u6236\u59d3\u540d\uff1a" + profile["name"])
-    if profile.get("occupation"): lines.append("\u8077\u696d\uff1a" + profile["occupation"])
-    if profile.get("learning"):   lines.append("\u6b63\u5728\u5b78\u7fd2\uff1a" + profile["learning"])
-    if profile.get("notes"):      lines.append("\u5099\u8a3b\uff1a" + profile["notes"])
-    return base + "\n\n\u3010\u7528\u6236\u8cc7\u6599\u3011\n" + "\n".join(lines)
 
 
 async def get_user_profile(user_id: str) -> dict:
