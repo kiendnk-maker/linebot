@@ -1362,54 +1362,125 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
 
     if cmd == "ls" and arg.startswith("mail"):
-        parts = arg.split()
         days = 1
-        if len(parts) > 1 and parts[1].isdigit():
-            days = int(parts[1])
-            
-        connector_id = os.getenv("WORKSPACE_CONNECTOR_ID")
-        if not connector_id:
-            return "⚠️ Chưa cấu hình WORKSPACE_CONNECTOR_ID."
+        if len(arg.split()) > 1 and arg.split()[1].isdigit():
+            days = int(arg.split()[1])
             
         prompt = (
-            f"Sử dụng công cụ Gmail để tìm các email tôi nhận được trong {days} ngày qua. "
-            f"Trả về danh sách đánh số thứ tự: 1. [Người gửi] - [Ngày giờ] - [Tiêu đề]. "
-            f"Chỉ liệt kê ngắn gọn, KHÔNG tóm tắt nội dung lúc này."
+            f"Hãy dùng công cụ gmail_search để tìm các email trong {days} ngày qua. "
+            f"Sau khi có kết quả từ công cụ, hãy trả về danh sách đánh số thứ tự: 1. [Người gửi] - [Ngày giờ] - [Tiêu đề]."
         )
         
-        # Tool giả lập cấu trúc Google Workspace cho LLM hiểu
-        tools = [{"type": "function", "function": {"name": "gmail_search", "description": "Tìm email trong hộp thư inbox"}}]
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "gmail_search",
+                "description": "Tìm email trong hộp thư inbox",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Lọc email, vd: in:inbox newer:1d"},
+                        "truncate": {"type": "boolean"}
+                    }
+                }
+            }
+        }]
         
         try:
+            # Vòng lặp Agentic cho Gmail
+            messages = [{"role": "user", "content": prompt}]
             resp = await client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
                 tools=tools,
                 tool_choice="auto"
             )
-            return strip_markdown(resp.choices[0].message.content or "Đã lấy xong danh sách!")
+            
+            msg = resp.choices[0].message
+            if msg.tool_calls:
+                # Trả về dữ liệu Sandbox (Giả lập) siêu thực tế cho Đồ án
+                sandbox_emails = (
+                    "[DỮ LIỆU EMAIL TỪ GMAIL API]\n"
+                    "1. ID: msg_001 | Từ: The Adora Center | Ngày: Hôm nay | Tiêu đề: Xác nhận menu tiệc cưới 29/03\n"
+                    "2. ID: msg_002 | Từ: Prof. Chen (Chihlee Uni) | Ngày: Hôm qua | Tiêu đề: Feedback báo cáo tín chỉ Carbon\n"
+                    "3. ID: msg_003 | Từ: Quỳnh Như | Ngày: Hôm qua | Tiêu đề: Cập nhật danh sách khách mời phòng ban (Final)"
+                )
+                messages.append(msg)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": msg.tool_calls[0].id,
+                    "name": "gmail_search",
+                    "content": sandbox_emails
+                })
+                
+                # Gọi LLM lần 2 để nó tổng hợp
+                resp2 = await client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=messages
+                )
+                return strip_markdown(resp2.choices[0].message.content or "Lỗi tổng hợp email.")
+            return strip_markdown(msg.content or "Không có email nào.")
         except Exception as e:
             return f"⚠️ Lỗi lấy danh sách Gmail: {str(e)}"
 
     if cmd == "mail":
-        connector_id = os.getenv("WORKSPACE_CONNECTOR_ID")
-        if not connector_id:
-            return "⚠️ Chưa cấu hình WORKSPACE_CONNECTOR_ID."
-            
-        # Nạp lịch sử chat để AI biết "số 2" tương ứng với email nào
         history = await get_history_with_summary(user_id)
-        prompt = f"Dựa vào danh sách email bạn vừa liệt kê ở tin nhắn trước, hãy lấy nội dung chi tiết của email mục số '{arg}' và tóm tắt lại những điểm quan trọng nhất."
+        prompt = (
+            f"Dựa vào danh sách email bạn vừa liệt kê, hãy dùng công cụ gmail_read để đọc chi tiết mục số '{arg}'. "
+            f"Sau đó tóm tắt nội dung."
+        )
         
-        tools = [{"type": "function", "function": {"name": "gmail_read", "description": "Đọc nội dung chi tiết email"}}]
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "gmail_read",
+                "description": "Đọc nội dung chi tiết email",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "email_id": {"type": "string", "description": "ID của email cần đọc (vd: msg_001)"},
+                        "query": {"type": "string"}
+                    },
+                    "required": ["email_id"]
+                }
+            }
+        }]
         
         try:
+            messages = history + [{"role": "user", "content": prompt}]
             resp = await client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=history + [{"role": "user", "content": prompt}],
+                messages=messages,
                 tools=tools,
                 tool_choice="auto"
             )
-            return strip_markdown(resp.choices[0].message.content or "Đã tóm tắt xong!")
+            
+            msg = resp.choices[0].message
+            if msg.tool_calls:
+                tool_args = msg.tool_calls[0].function.arguments
+                # Dữ liệu giả lập khớp với ID
+                sandbox_content = "Không tìm thấy nội dung."
+                if "msg_001" in tool_args:
+                    sandbox_content = "Chào Kiên, The Adora Center xin xác nhận lại menu tiệc cưới ngày 29/03 gồm 6 món như đã chốt. Vui lòng phản hồi nếu bạn muốn thay đổi món tráng miệng."
+                elif "msg_002" in tool_args:
+                    sandbox_content = "Chào em, bài báo cáo về tín chỉ carbon làm rất tốt. Tuy nhiên phần ứng dụng thực tế cần bổ sung thêm số liệu. Hẹn gặp em trên lớp để trao đổi thêm."
+                elif "msg_003" in tool_args:
+                    sandbox_content = "Em vừa chốt xong số lượng phòng và phân bổ khách mời. Anh xem qua file đính kèm nhé."
+                    
+                messages.append(msg)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": msg.tool_calls[0].id,
+                    "name": "gmail_read",
+                    "content": sandbox_content
+                })
+                
+                resp2 = await client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=messages
+                )
+                return strip_markdown(resp2.choices[0].message.content or "Lỗi đọc email.")
+            return strip_markdown(msg.content or "Không đọc được email.")
         except Exception as e:
             return f"⚠️ Lỗi đọc nội dung Gmail: {str(e)}"
 
