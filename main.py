@@ -225,6 +225,11 @@ async def init_db() -> None:
             " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
         )
         await db.execute(
+            "CREATE TABLE IF NOT EXISTS user_profile "
+            "(user_id TEXT PRIMARY KEY, "
+            " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
+        )
+        await db.execute(
             "CREATE TABLE IF NOT EXISTS reminders "
             "(id        INTEGER PRIMARY KEY AUTOINCREMENT, "
             " user_id   TEXT    NOT NULL, "
@@ -288,6 +293,59 @@ async def build_system_prompt(user_id: str, model_key: str) -> str:
         profile_lines.append(f"正在學習：{profile['learning']}")
     if profile.get("notes"):
         profile_lines.append(f"備註：{profile['notes']}")
+
+    profile_str = "
+".join(profile_lines)
+    return base + f"
+
+【用戶資料】
+{profile_str}"
+
+
+async def get_user_profile(user_id: str) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT name, occupation, learning, notes FROM user_profile WHERE user_id = ?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return {}
+    keys = ["name", "occupation", "learning", "notes"]
+    return {k: v for k, v in zip(keys, row) if v}
+
+
+async def save_user_profile(user_id: str, **kwargs) -> None:
+    """Update user profile fields. Only updates provided fields."""
+    if not kwargs:
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO user_profile (user_id) VALUES (?) "
+            "ON CONFLICT(user_id) DO NOTHING",
+            (user_id,),
+        )
+        for key, value in kwargs.items():
+            if key in ("name", "occupation", "learning", "notes"):
+                await db.execute(
+                    f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
+                    (value, user_id),
+                )
+        await db.commit()
+
+
+async def build_system_prompt(user_id: str, model_key: str) -> str:
+    """Inject user profile vào system prompt nếu có."""
+    base = get_system_prompt(model_key)
+    profile = await get_user_profile(user_id)
+    if not profile:
+        return base
+
+    profile_lines = []
+    if profile.get("name"):       profile_lines.append(f"用戶姓名：{profile['name']}")
+    if profile.get("occupation"): profile_lines.append(f"職業：{profile['occupation']}")
+    if profile.get("learning"):   profile_lines.append(f"正在學習：{profile['learning']}")
+    if profile.get("notes"):      profile_lines.append(f"備註：{profile['notes']}")
 
     profile_str = "
 ".join(profile_lines)
@@ -859,6 +917,42 @@ async def handle_command(user_id: str, text: str) -> str | None:
 ".join(lines)
 
         # Cập nhật field
+        parts2 = arg.split(maxsplit=1)
+        if len(parts2) < 2:
+            return "❓ Dùng: /profile name|job|learning|note <nội dung>"
+        field, value = parts2[0].lower(), parts2[1]
+        field_map = {"name": "name", "job": "occupation", "learning": "learning", "note": "notes"}
+        if field not in field_map:
+            return "❓ Field hợp lệ: name, job, learning, note"
+        await save_user_profile(user_id, **{field_map[field]: value})
+        return f"✅ Đã lưu {field}: {value}"
+
+    if cmd == "profile":
+        profile = await get_user_profile(user_id)
+        if not arg:
+            if not profile:
+                return (
+                    "📋 Chưa có thông tin cá nhân.
+"
+                    "Cập nhật:
+"
+                    "/profile name Tên bạn
+"
+                    "/profile job Nghề nghiệp
+"
+                    "/profile learning Tiếng Trung B1
+"
+                    "/profile note Ghi chú thêm"
+                )
+            lines = ["📋 Thông tin của bạn:
+"]
+            if profile.get("name"):       lines.append(f"👤 Tên: {profile['name']}")
+            if profile.get("occupation"): lines.append(f"💼 Nghề: {profile['occupation']}")
+            if profile.get("learning"):   lines.append(f"📚 Đang học: {profile['learning']}")
+            if profile.get("notes"):      lines.append(f"📝 Ghi chú: {profile['notes']}")
+            return "
+".join(lines)
+
         parts2 = arg.split(maxsplit=1)
         if len(parts2) < 2:
             return "❓ Dùng: /profile name|job|learning|note <nội dung>"
