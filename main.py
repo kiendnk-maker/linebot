@@ -186,21 +186,6 @@ async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
     return routed_key, MODEL_REGISTRY[routed_key]["model_id"]
 
 
-async def resolve_model_and_reminder(
-    user_id: str,
-    user_text: str,
-) -> tuple[tuple[str, str], str | None]:
-    """
-    Chạy resolve_model và parse_reminder_nlp song song.
-    Returns ((model_key, model_id), reminder_reply)
-    """
-    (model_key, model_id), reminder_reply = await asyncio.gather(
-        resolve_model(user_id, user_text),
-        parse_reminder_nlp(user_id, user_text),
-    )
-    return (model_key, model_id), reminder_reply
-
-
 # ---------------------------------------------------------------------------
 # DATABASE
 # ---------------------------------------------------------------------------
@@ -218,16 +203,6 @@ async def init_db() -> None:
         await db.execute(
             "CREATE TABLE IF NOT EXISTS summary "
             "(user_id TEXT PRIMARY KEY, content TEXT, updated_at INTEGER)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS user_profile "
-            "(user_id TEXT PRIMARY KEY, "
-            " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS user_profile "
-            "(user_id TEXT PRIMARY KEY, "
-            " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
         )
         await db.execute(
             "CREATE TABLE IF NOT EXISTS user_profile "
@@ -260,68 +235,6 @@ async def get_user_profile(user_id: str) -> dict:
 
 
 async def save_user_profile(user_id: str, **kwargs) -> None:
-    """Update user profile fields. Only updates provided fields."""
-    if not kwargs:
-        return
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Upsert — insert or update existing
-        await db.execute(
-            "INSERT INTO user_profile (user_id) VALUES (?) "
-            "ON CONFLICT(user_id) DO NOTHING",
-            (user_id,),
-        )
-        for key, value in kwargs.items():
-            if key in ("name", "occupation", "learning", "notes"):
-                await db.execute(
-                    f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
-                    (value, user_id),
-                )
-        await db.commit()
-
-
-async def build_system_prompt(user_id: str, model_key: str) -> str:
-    """
-    Inject user profile vào system prompt nếu có.
-    Thay thế get_system_prompt() trực tiếp.
-    """
-    base = get_system_prompt(model_key)
-    profile = await get_user_profile(user_id)
-    if not profile:
-        return base
-
-    profile_lines = []
-    if profile.get("name"):
-        profile_lines.append(f"用戶姓名：{profile['name']}")
-    if profile.get("occupation"):
-        profile_lines.append(f"職業：{profile['occupation']}")
-    if profile.get("learning"):
-        profile_lines.append(f"正在學習：{profile['learning']}")
-    if profile.get("notes"):
-        profile_lines.append(f"備註：{profile['notes']}")
-
-    profile_str = "
-".join(profile_lines)
-    return base + f"
-
-【用戶資料】
-{profile_str}"
-
-
-async def get_user_profile(user_id: str) -> dict:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT name, occupation, learning, notes FROM user_profile WHERE user_id = ?",
-            (user_id,),
-        ) as cur:
-            row = await cur.fetchone()
-    if not row:
-        return {}
-    keys = ["name", "occupation", "learning", "notes"]
-    return {k: v for k, v in zip(keys, row) if v}
-
-
-async def save_user_profile(user_id: str, **kwargs) -> None:
-    """Update user profile fields. Only updates provided fields."""
     if not kwargs:
         return
     async with aiosqlite.connect(DB_PATH) as db:
@@ -340,77 +253,16 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
 
 
 async def build_system_prompt(user_id: str, model_key: str) -> str:
-    """Inject user profile vào system prompt nếu có."""
     base = get_system_prompt(model_key)
     profile = await get_user_profile(user_id)
     if not profile:
         return base
-
-    profile_lines = []
-    if profile.get("name"):       profile_lines.append(f"用戶姓名：{profile['name']}")
-    if profile.get("occupation"): profile_lines.append(f"職業：{profile['occupation']}")
-    if profile.get("learning"):   profile_lines.append(f"正在學習：{profile['learning']}")
-    if profile.get("notes"):      profile_lines.append(f"備註：{profile['notes']}")
-
-    profile_str = "
-".join(profile_lines)
-    return base + f"
-
-【用戶資料】
-{profile_str}"
-
-
-async def get_user_profile(user_id: str) -> dict:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT name, occupation, learning, notes FROM user_profile WHERE user_id = ?",
-            (user_id,),
-        ) as cur:
-            row = await cur.fetchone()
-    if not row:
-        return {}
-    keys = ["name", "occupation", "learning", "notes"]
-    return {k: v for k, v in zip(keys, row) if v}
-
-
-async def save_user_profile(user_id: str, **kwargs) -> None:
-    """Update user profile fields. Only updates provided fields."""
-    if not kwargs:
-        return
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO user_profile (user_id) VALUES (?) "
-            "ON CONFLICT(user_id) DO NOTHING",
-            (user_id,),
-        )
-        for key, value in kwargs.items():
-            if key in ("name", "occupation", "learning", "notes"):
-                await db.execute(
-                    f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
-                    (value, user_id),
-                )
-        await db.commit()
-
-
-async def build_system_prompt(user_id: str, model_key: str) -> str:
-    """Inject user profile vào system prompt nếu có."""
-    base = get_system_prompt(model_key)
-    profile = await get_user_profile(user_id)
-    if not profile:
-        return base
-
-    profile_lines = []
-    if profile.get("name"):       profile_lines.append(f"用戶姓名：{profile['name']}")
-    if profile.get("occupation"): profile_lines.append(f"職業：{profile['occupation']}")
-    if profile.get("learning"):   profile_lines.append(f"正在學習：{profile['learning']}")
-    if profile.get("notes"):      profile_lines.append(f"備註：{profile['notes']}")
-
-    profile_str = "
-".join(profile_lines)
-    return base + f"
-
-【用戶資料】
-{profile_str}"
+    lines = []
+    if profile.get("name"):       lines.append("\u7528\u6236\u59d3\u540d\uff1a" + profile["name"])
+    if profile.get("occupation"): lines.append("\u8077\u696d\uff1a" + profile["occupation"])
+    if profile.get("learning"):   lines.append("\u6b63\u5728\u5b78\u7fd2\uff1a" + profile["learning"])
+    if profile.get("notes"):      lines.append("\u5099\u8a3b\uff1a" + profile["notes"])
+    return base + "\n\n\u3010\u7528\u6236\u8cc7\u6599\u3011\n" + "\n".join(lines)
 
 
 async def save_message(user_id: str, role: str, content: str) -> None:
@@ -593,22 +445,19 @@ def _next_fire(fire_at: int, repeat: str) -> int:
 
 
 _PARSE_REMINDER_PROMPT = """Extract reminder info from the user message.
-Current datetime (UTC+8): {now_str}
+Current unix timestamp: {now}
+Current datetime: {now_str}
 
 Reply ONLY with JSON, no explanation:
-{{"is_reminder": true/false, "message": "reminder content", "time": "HH:MM or null", "date": "DD/MM/YYYY", "repeat": null or "daily" or "weekly" or "monthly"}}
+{{"is_reminder": true/false, "message": "reminder content", "fire_at": unix_timestamp, "repeat": null or "daily" or "weekly" or "monthly"}}
 
 Rules:
-- Return time as HH:MM (24h format). If no specific time → return null
-- Return date as DD/MM/YYYY
-- "hôm nay/tonight/today" → use {date_str}
-- "ngày mai/tomorrow" → use {tomorrow_str}
+- "hôm nay/tonight/today" → same day
+- "ngày mai/tomorrow" → next day
 - "mỗi ngày/every day/daily" → repeat=daily
 - "mỗi tuần/every week/weekly" → repeat=weekly
 - "mỗi tháng/every month/monthly" → repeat=monthly
-- If no date + no repeat → use {date_str}, if time passed → use {tomorrow_str}
-- Set is_reminder=true if user mentions scheduled event with time, even without explicit remind keyword
-- Examples: "tôi có họp lúc 14h", "I have meeting at 2pm", "ngày mai có thuyết trình" → is_reminder=true
+- If no date + no repeat → assume today, if time already passed → tomorrow
 - If not a reminder → is_reminder: false
 
 User message: {message}"""
@@ -619,10 +468,8 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
     Parse natural language reminder.
     Returns confirm string nếu tạo được, None nếu không phải reminder.
     """
-    now_dt      = datetime.now(TZ)
-    now_str     = now_dt.strftime("%H:%M %d/%m/%Y %A")
-    date_str    = now_dt.strftime("%d/%m/%Y")
-    tomorrow_str = (now_dt + timedelta(days=1)).strftime("%d/%m/%Y")
+    now     = int(datetime.now(TZ).timestamp())
+    now_str = datetime.now(TZ).strftime("%H:%M %d/%m/%Y %A")
 
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
@@ -632,14 +479,11 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
                 messages=[{
                     "role": "user",
                     "content": _PARSE_REMINDER_PROMPT.format(
-                        now_str=now_str,
-                        date_str=date_str,
-                        tomorrow_str=tomorrow_str,
-                        message=user_text[:300]
+                        now=now, now_str=now_str, message=user_text[:300]
                     ),
                 }],
                 temperature=0.0,
-                max_tokens=60,
+                max_tokens=100,
             )
             text = resp.choices[0].message.content or ""
             text = re.sub(r"```[a-z]*\n?|```", "", text).strip()
@@ -648,20 +492,8 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
             if not data.get("is_reminder"):
                 return None
 
-            # Python tự tính timestamp — không tin llama8b tính giờ
-            time_str = data.get("time", "08:00")
-            date_str2 = data.get("date", date_str)
-            hour, minute = map(int, time_str.split(":"))
-            day, month, year = map(int, date_str2.split("/"))
-            fire_dt_local = now_dt.replace(
-                year=year, month=month, day=day,
-                hour=hour, minute=minute, second=0, microsecond=0
-            )
-            # Nếu giờ đã qua hôm nay → tự động sang ngày mai
-            if fire_dt_local <= now_dt and not data.get("repeat"):
-                fire_dt_local += timedelta(days=1)
-            fire_at = int(fire_dt_local.timestamp())
-            message = transcript  # dùng transcript đã clean bởi gpt120b
+            fire_at = int(data["fire_at"])
+            message = data["message"]
             repeat  = data.get("repeat")
 
             rid = await save_reminder(user_id, message, fire_at, repeat)
@@ -770,7 +602,7 @@ async def call_groq_text(
     while clean_history and clean_history[-1]["role"] == "assistant":
         clean_history.pop()
 
-    # reasoning_effort=low cho gpt120b — tiết kiệm token, đủ cho chat
+    # reasoning_effort=low cho gpt120b — tiet kiem token, du cho chat
     extra: dict = {}
     if model_id == MODEL_REGISTRY["gpt120b"]["model_id"]:
         extra["reasoning_effort"] = "low"
@@ -852,34 +684,6 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
             return f"⚠️ Whisper 錯誤: {str(e)[:150]}"
 
 
-async def clean_transcript(transcript: str) -> str:
-    """
-    Dùng gpt120b sửa lỗi chính tả, nghe nhầm từ Whisper.
-    Chỉ sửa lỗi, không thay đổi ý nghĩa hay thêm nội dung.
-    """
-    async with httpx.AsyncClient() as http:
-        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
-        try:
-            resp = await client.chat.completions.create(
-                model=MODEL_REGISTRY["gpt120b"]["model_id"],
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        "Đây là transcript từ giọng nói, có thể có lỗi nghe nhầm hoặc sai chính tả. "
-                        "Hãy sửa lỗi chính tả và từ nghe nhầm, giữ nguyên ý nghĩa và ngôn ngữ gốc. "
-                        "Chỉ trả về câu đã sửa, không giải thích.\n\n"
-                        f"Transcript: {transcript}"
-                    ),
-                }],
-                temperature=0.0,
-                max_tokens=300,
-            )
-            cleaned = resp.choices[0].message.content.strip()
-            return cleaned if cleaned else transcript
-        except Exception:
-            return transcript  # fallback về transcript gốc nếu lỗi
-
-
 # ---------------------------------------------------------------------------
 # COMMAND SYSTEM
 # ---------------------------------------------------------------------------
@@ -950,112 +754,30 @@ async def handle_command(user_id: str, text: str) -> str | None:
     if cmd == "profile":
         profile = await get_user_profile(user_id)
         if not arg:
-            # Xem profile
             if not profile:
                 return (
-                    "📋 Chưa có thông tin cá nhân.
-"
-                    "Cập nhật:
-"
-                    "/profile name Tên bạn
-"
-                    "/profile job Nghề nghiệp
-"
-                    "/profile learning Tiếng Trung B1
-"
-                    "/profile note Ghi chú thêm"
+                    "Chua co thong tin ca nhan.\n"
+                    "Cap nhat:\n"
+                    "/profile name Ten ban\n"
+                    "/profile job Nghe nghiep\n"
+                    "/profile learning Tieng Trung B1\n"
+                    "/profile note Ghi chu them"
                 )
-            lines = ["📋 Thông tin của bạn:
-"]
-            if profile.get("name"):       lines.append(f"👤 Tên: {profile['name']}")
-            if profile.get("occupation"): lines.append(f"💼 Nghề: {profile['occupation']}")
-            if profile.get("learning"):   lines.append(f"📚 Đang học: {profile['learning']}")
-            if profile.get("notes"):      lines.append(f"📝 Ghi chú: {profile['notes']}")
-            return "
-".join(lines)
-
-        # Cập nhật field
+            lines = ["Thong tin cua ban:\n"]
+            if profile.get("name"):       lines.append("Ten: " + profile["name"])
+            if profile.get("occupation"): lines.append("Nghe: " + profile["occupation"])
+            if profile.get("learning"):   lines.append("Dang hoc: " + profile["learning"])
+            if profile.get("notes"):      lines.append("Ghi chu: " + profile["notes"])
+            return "\n".join(lines)
         parts2 = arg.split(maxsplit=1)
         if len(parts2) < 2:
-            return "❓ Dùng: /profile name|job|learning|note <nội dung>"
+            return "Dung: /profile name|job|learning|note <noi dung>"
         field, value = parts2[0].lower(), parts2[1]
         field_map = {"name": "name", "job": "occupation", "learning": "learning", "note": "notes"}
         if field not in field_map:
-            return "❓ Field hợp lệ: name, job, learning, note"
+            return "Field hop le: name, job, learning, note"
         await save_user_profile(user_id, **{field_map[field]: value})
-        return f"✅ Đã lưu {field}: {value}"
-
-    if cmd == "profile":
-        profile = await get_user_profile(user_id)
-        if not arg:
-            if not profile:
-                return (
-                    "📋 Chưa có thông tin cá nhân.
-"
-                    "Cập nhật:
-"
-                    "/profile name Tên bạn
-"
-                    "/profile job Nghề nghiệp
-"
-                    "/profile learning Tiếng Trung B1
-"
-                    "/profile note Ghi chú thêm"
-                )
-            lines = ["📋 Thông tin của bạn:
-"]
-            if profile.get("name"):       lines.append(f"👤 Tên: {profile['name']}")
-            if profile.get("occupation"): lines.append(f"💼 Nghề: {profile['occupation']}")
-            if profile.get("learning"):   lines.append(f"📚 Đang học: {profile['learning']}")
-            if profile.get("notes"):      lines.append(f"📝 Ghi chú: {profile['notes']}")
-            return "
-".join(lines)
-
-        parts2 = arg.split(maxsplit=1)
-        if len(parts2) < 2:
-            return "❓ Dùng: /profile name|job|learning|note <nội dung>"
-        field, value = parts2[0].lower(), parts2[1]
-        field_map = {"name": "name", "job": "occupation", "learning": "learning", "note": "notes"}
-        if field not in field_map:
-            return "❓ Field hợp lệ: name, job, learning, note"
-        await save_user_profile(user_id, **{field_map[field]: value})
-        return f"✅ Đã lưu {field}: {value}"
-
-    if cmd == "profile":
-        profile = await get_user_profile(user_id)
-        if not arg:
-            if not profile:
-                return (
-                    "📋 Chưa có thông tin cá nhân.
-"
-                    "Cập nhật:
-"
-                    "/profile name Tên bạn
-"
-                    "/profile job Nghề nghiệp
-"
-                    "/profile learning Tiếng Trung B1
-"
-                    "/profile note Ghi chú thêm"
-                )
-            lines = ["📋 Thông tin của bạn:
-"]
-            if profile.get("name"):       lines.append(f"👤 Tên: {profile['name']}")
-            if profile.get("occupation"): lines.append(f"💼 Nghề: {profile['occupation']}")
-            if profile.get("learning"):   lines.append(f"📚 Đang học: {profile['learning']}")
-            if profile.get("notes"):      lines.append(f"📝 Ghi chú: {profile['notes']}")
-            return "
-".join(lines)
-
-        parts2 = arg.split(maxsplit=1)
-        if len(parts2) < 2:
-            return "❓ Dùng: /profile name|job|learning|note <nội dung>"
-        field, value = parts2[0].lower(), parts2[1]
-        field_map = {"name": "name", "job": "occupation", "learning": "learning", "note": "notes"}
-        if field not in field_map:
-            return "❓ Field hợp lệ: name, job, learning, note"
-        await save_user_profile(user_id, **{field_map[field]: value})
-        return f"✅ Đã lưu {field}: {value}"
+        return "Da luu " + field + ": " + value
 
     if cmd == "remind":
         # /remind list
@@ -1065,7 +787,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 return "📭 Không có nhắc nhở nào đang chờ."
             lines = ["📋 Danh sách nhắc nhở:\n"]
             for r in reminders:
-                dt = datetime.fromtimestamp(r["fire_at"], tz=TZ)
+                dt = datetime.fromtimestamp(r["fire_at"])
                 repeat_label = {
                     "daily":   " 🔁 hàng ngày",
                     "weekly":  " 🔁 hàng tuần",
@@ -1209,26 +931,16 @@ async def process_event(event: MessageEvent) -> None:
                         if clean_text.lower().startswith(t.lower()):
                             clean_text = clean_text[len(t):].strip()
                             break
-                    reminder_reply = await parse_reminder_nlp(user_id, clean_text)
-                    if reminder_reply:
-                        reply = f"🎤 {clean_text}\n\n{reminder_reply}"
-                    else:
-                        await save_message(user_id, "user", clean_text)
-                        model_key, model_id = await resolve_model(user_id, clean_text)
-                        history = await get_history_with_summary(user_id)
-                        answer  = await call_groq_text(history, model_id, model_key=model_key, user_id=user_id)
-                        await save_message(user_id, "assistant", answer)
-                        await maybe_summarize(user_id)
-                        reply = f"🎤 {clean_text}\n\n{answer}"
+                    await save_message(user_id, "user", clean_text)
+                    model_key, model_id = await resolve_model(user_id, clean_text)
+                    history = await get_history_with_summary(user_id)
+                    answer  = await call_groq_text(history, model_id, model_key=model_key, user_id=user_id)
+                    await save_message(user_id, "assistant", answer)
+                    await maybe_summarize(user_id)
+                    reply = f"🎤 {clean_text}\n\n{answer}"
                 else:
-                    # Không có trigger → vẫn clean + check reminder
-                    transcript = await clean_transcript(transcript)
-                    reminder_reply = await parse_reminder_nlp(user_id, transcript)
-                    if reminder_reply:
-                        reply = f"🎤 {transcript}\n\n{reminder_reply}"
-                    else:
-                        await save_message(user_id, "user", f"[Voice]: {transcript}")
-                        reply = f"🎤 {transcript}"
+                    await save_message(user_id, "user", f"[Voice]: {transcript}")
+                    reply = f"🎤 {transcript}"
             else:
                 reply = transcript
 
@@ -1258,11 +970,12 @@ async def process_event(event: MessageEvent) -> None:
                         f"Vui lòng giới hạn dưới {MAX_INPUT_CHARS} ký tự."
                     )
                 else:
-                    # Chạy reminder detection + model routing song song
-                    (model_key, model_id), reminder_reply = await resolve_model_and_reminder(user_id, user_text)
+                    # Natural language reminder detection
+                    reminder_reply = await parse_reminder_nlp(user_id, user_text)
                     if reminder_reply:
                         reply = reminder_reply
                     else:
+                        model_key, model_id = await resolve_model(user_id, user_text)
 
                         # Text dài không có câu hỏi → inject tóm tắt instruction
                         if len(user_text) > 500 and "?" not in user_text and "？" not in user_text:
