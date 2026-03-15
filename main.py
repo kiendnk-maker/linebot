@@ -114,7 +114,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "note":    "唯一視覺模型，低延遲",
     },
     "qwen": {
-        "model_id": "qwen/qwen3-32b",
+        "model_id": "qwen/qwen-3-32b",
         "type":    "reasoning",
         "tier":    "preview",
         "display": "Qwen3 32B",
@@ -560,9 +560,17 @@ Rules:
 - moi ngay/every day/daily = repeat=daily
 - moi tuan/every week/weekly = repeat=weekly
 - moi thang/every month/monthly = repeat=monthly
-- If no date + no repeat use {date_str}, if time already passed use {tomorrow_str}
-- Set is_reminder=true if user mentions scheduled event with time even without explicit remind keyword
-- Examples of is_reminder=true: toi co hop luc 14h, cuoc hen luc 7h toi, I have meeting at 2pm
+- hom nay/tonight/today = {date_str}
+- ngay mai/tomorrow = {tomorrow_str}
+- moi ngay/every day/daily = repeat=daily
+- moi tuan/every week/weekly = repeat=weekly
+- moi thang/every month/monthly = repeat=monthly
+- Set is_reminder=true if user mentions scheduled event with time even without explicit remind keyword.
+- IMPORTANT - Examples of is_reminder=true:
+    "cuoc hen luc 7h toi" -> {{"is_reminder": true, "time": "19:00", ...}}
+    "toi co hop luc 14h" -> {{"is_reminder": true, "time": "14:00", ...}}
+    "mai 8h sang di kham" -> {{"is_reminder": true, "time": "08:00", ...}}
+    "I have a meeting at 2pm" -> {{"is_reminder": true, "time": "14:00", ...}}
 - Key signals: cuoc hen, cuoc hop, thuyet trinh, gap, hen, meeting, appointment + time = is_reminder=true
 - Do NOT return fire_at — only return time and date strings. Python will compute timestamp.
 - If not a reminder: is_reminder=false
@@ -714,29 +722,24 @@ class EmbedError(RuntimeError):
 
 
 async def embed_text(text: str) -> list[float]:
-    """Embed text via HuggingFace API with retry on cold start (503)."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_EMBED_MODEL}:embedContent?key={GEMINI_API_KEY}"
+    payload = {"model": f"models/{GEMINI_EMBED_MODEL}", "content": {"parts": [{"text": text}]}}
     for attempt in range(3):
         async with httpx.AsyncClient(timeout=30) as http:
-            resp = await http.post(
-                HF_EMBED_URL,
-                headers={"Authorization": f"Bearer {HF_API_KEY}"},
-                json={"inputs": text},
-            )
-        if resp.status_code == 503:
-            logger.warning(f"HuggingFace cold start attempt {attempt+1}/3, sleeping 20s")
-            await asyncio.sleep(20)
+            resp = await http.post(url, headers={"Content-Type": "application/json"}, json=payload)
+        if resp.status_code == 429:
+            logger.warning(f"Gemini API rate limit 429, attempt {attempt+1}/3, sleeping 10s")
+            await asyncio.sleep(10)
             continue
         resp.raise_for_status()
-        return resp.json()
-    raise EmbedError("HuggingFace unavailable after 3 retries")
-
+        return resp.json()["embedding"]["values"]
+    raise EmbedError("Gemini API unavailable after 3 retries")
 
 async def embed_batch(texts: list[str]) -> list[list[float]]:
-    """Embed a list of texts sequentially (HF free tier, no parallel bulk endpoint)."""
-    result: list[list[float]] = []
+    result = []
     for text in texts:
-        vec = await embed_text(text)
-        result.append(vec)
+        result.append(await embed_text(text))
+        await asyncio.sleep(0.5)
     return result
 
 
