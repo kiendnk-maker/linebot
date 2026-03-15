@@ -1132,10 +1132,22 @@ async def process_event(event: MessageEvent) -> None:
 
         # ── REPLY ──────────────────────────────────────────────────────────
         if reply:
-            reply = reply[:4990] + "…" if len(reply) > 4990 else reply
+            # Split thanh nhieu tin neu qua 4990 ky tu
+            chunks = []
+            while len(reply) > 4990:
+                # Cat tai dau cach gan nhat truoc 4990
+                cut = reply.rfind(' ', 0, 4990)
+                if cut == -1:
+                    cut = 4990
+                chunks.append(reply[:cut])
+                reply = reply[cut:].strip()
+            if reply:
+                chunks.append(reply)
+            # LINE toi da 5 messages/reply
+            chunks = chunks[:5]
             await line_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text=reply)],
+                    messages=[TextMessage(text=c) for c in chunks],
                 )
             )
