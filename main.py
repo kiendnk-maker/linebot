@@ -41,6 +41,9 @@ DB_PATH                   = os.environ.get("DB_PATH", "chat_history.db")
 CHROMA_PATH               = os.environ.get("CHROMA_PATH", "chroma")
 
 
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_EMBED_MODEL = "gemini-embedding-001"
+
 WHISPER_MODEL   = "whisper-large-v3-turbo"
 MAX_INPUT_CHARS = 8000
 SUMMARY_TRIGGER = 20
