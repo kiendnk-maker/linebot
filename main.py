@@ -304,8 +304,6 @@ async def init_db() -> None:
             " chunk_count INTEGER NOT NULL, "
             " uploaded_at INTEGER NOT NULL)"
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -329,8 +327,6 @@ async def set_user_model(user_id: str, model_key: str) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET model_key = excluded.model_key",
             (user_id, model_key),
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -350,8 +346,6 @@ async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET max_tokens = excluded.max_tokens",
             (user_id, max_tokens),
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -385,8 +379,6 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
                     f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
                     (value, user_id),
                 )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -412,8 +404,6 @@ async def save_message(user_id: str, role: str, content: str) -> None:
             "INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)",
             (user_id, role, content),
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -457,8 +447,6 @@ async def save_summary(user_id: str, content: str) -> None:
             "content = excluded.content, updated_at = excluded.updated_at",
             (user_id, content, int(time.time())),
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -496,6 +484,13 @@ async def maybe_summarize(user_id: str) -> None:
             pass
 
 
+
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
+        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
+        await db.commit()
+
 async def get_history_with_summary(user_id: str) -> list[dict]:
     """Return [summary_pair] + 5 most recent messages."""
     summary = await get_summary(user_id)
@@ -520,8 +515,6 @@ async def save_reminder(
             "INSERT INTO reminders (user_id, message, fire_at, repeat) VALUES (?, ?, ?, ?)",
             (user_id, message, fire_at, repeat),
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
         return cur.lastrowid  # type: ignore[return-value]
 
@@ -543,8 +536,6 @@ async def cancel_reminder(user_id: str, reminder_id: int) -> bool:
             "UPDATE reminders SET done = 1 WHERE id = ? AND user_id = ? AND done = 0",
             (reminder_id, user_id),
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
         return cur.rowcount > 0
 
@@ -710,9 +701,7 @@ async def reminder_loop() -> None:
                 else:
                     await db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rid,))
 
-            await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
-        await db.commit()
+            await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -809,8 +798,6 @@ async def save_rag_doc(user_id: str, filename: str, chunk_count: int) -> None:
             "VALUES (?, ?, ?, ?)",
             (user_id, filename, chunk_count, int(time.time())),
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -845,8 +832,6 @@ async def delete_rag_doc(user_id: str, filename: str) -> bool:
             "DELETE FROM rag_docs WHERE user_id = ? AND filename = ?",
             (user_id, filename),
         )
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
         if cur.rowcount == 0:
             return False
@@ -870,8 +855,6 @@ async def clear_rag_docs(user_id: str) -> int:
     docs = await list_rag_docs(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM rag_docs WHERE user_id = ?", (user_id,))
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
     lock = await _get_chroma_lock(user_id)
@@ -1454,9 +1437,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
             await db.execute("DELETE FROM summary WHERE user_id = ?", (user_id,))
-            await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
-        await db.commit()
+            await db.commit()
         return "🗑 對話記錄已清除。"
 
     # ── MODELS ─────────────────────────────────────────────────────────────
@@ -1507,9 +1488,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
         if arg == "clear":
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM user_profile WHERE user_id = ?", (user_id,))
-                await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
-        await db.commit()
+                await db.commit()
         return "🗑 Đã xoá thông tin cá nhân."
 
         profile = await get_user_profile(user_id)
@@ -1982,3 +1961,4 @@ async def process_event(event: MessageEvent) -> None:
 # Fix OAuth UX: Mon Mar 16 04:08:53 CST 2026
 # Clean UI Fix: Mon Mar 16 04:19:18 CST 2026
 # Clean UI Fix: Mon Mar 16 04:24:07 CST 2026
+# Fix DB Connection: Mon Mar 16 04:29:38 CST 2026
