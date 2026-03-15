@@ -653,6 +653,12 @@ async def call_groq_text(
     if model_id == MODEL_REGISTRY["gpt120b"]["model_id"]:
         extra["reasoning_effort"] = "low"
 
+    # max_tokens: uu tien user setting, fallback theo model
+    user_max = await get_user_max_tokens(user_id) if user_id else 800
+    max_tok  = user_max if user_max != 800 else (
+        1500 if model_key in ("qwen", "gpt120b", "gpt20b") else 800
+    )
+
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
@@ -660,7 +666,7 @@ async def call_groq_text(
                 model=model_id,
                 messages=[{"role": "system", "content": system}] + clean_history,
                 temperature=0.6,
-                max_tokens=800,
+                max_tokens=max_tok,
                 **extra,
             )
             return strip_markdown(resp.choices[0].message.content or "")
@@ -674,7 +680,7 @@ async def call_groq_text(
                         model=fallback_id,
                         messages=[{"role": "system", "content": system}] + clean_history,
                         temperature=0.6,
-                        max_tokens=800,
+                        max_tokens=max_tok,
                     )
                     return strip_markdown(resp.choices[0].message.content or "")
                 except Exception as e2:
