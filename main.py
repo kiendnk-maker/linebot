@@ -43,7 +43,7 @@ CHROMA_PATH               = os.environ.get("CHROMA_PATH", "chroma")
 
 HF_EMBED_URL = (
     "https://api-inference.huggingface.co/models/"
-    "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    "intfloat/multilingual-e5-small"
 )
 
 WHISPER_MODEL   = "whisper-large-v3-turbo"
