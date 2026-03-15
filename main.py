@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 LINE_CHANNEL_SECRET       = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 GROQ_API_KEY              = os.environ["GROQ_API_KEY"]
+client = AsyncGroq(api_key=GROQ_API_KEY)  # Khởi tạo client dùng chung cho các Agent
 DB_PATH                   = os.environ.get("DB_PATH", "chat_history.db")
 CHROMA_PATH               = os.environ.get("CHROMA_PATH", "chroma")
 
