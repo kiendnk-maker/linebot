@@ -304,6 +304,7 @@ async def init_db() -> None:
             " chunk_count INTEGER NOT NULL, "
             " uploaded_at INTEGER NOT NULL)"
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -327,6 +328,7 @@ async def set_user_model(user_id: str, model_key: str) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET model_key = excluded.model_key",
             (user_id, model_key),
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -346,6 +348,7 @@ async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
             "ON CONFLICT(user_id) DO UPDATE SET max_tokens = excluded.max_tokens",
             (user_id, max_tokens),
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -379,6 +382,7 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
                     f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
                     (value, user_id),
                 )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -404,6 +408,7 @@ async def save_message(user_id: str, role: str, content: str) -> None:
             "INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)",
             (user_id, role, content),
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -447,6 +452,7 @@ async def save_summary(user_id: str, content: str) -> None:
             "content = excluded.content, updated_at = excluded.updated_at",
             (user_id, content, int(time.time())),
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -508,6 +514,7 @@ async def save_reminder(
             "INSERT INTO reminders (user_id, message, fire_at, repeat) VALUES (?, ?, ?, ?)",
             (user_id, message, fire_at, repeat),
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
         return cur.lastrowid  # type: ignore[return-value]
 
@@ -529,6 +536,7 @@ async def cancel_reminder(user_id: str, reminder_id: int) -> bool:
             "UPDATE reminders SET done = 1 WHERE id = ? AND user_id = ? AND done = 0",
             (reminder_id, user_id),
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
         return cur.rowcount > 0
 
@@ -694,7 +702,8 @@ async def reminder_loop() -> None:
                 else:
                     await db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rid,))
 
-            await db.commit()
+            await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
+        await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -791,6 +800,7 @@ async def save_rag_doc(user_id: str, filename: str, chunk_count: int) -> None:
             "VALUES (?, ?, ?, ?)",
             (user_id, filename, chunk_count, int(time.time())),
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
 
@@ -825,6 +835,7 @@ async def delete_rag_doc(user_id: str, filename: str) -> bool:
             "DELETE FROM rag_docs WHERE user_id = ? AND filename = ?",
             (user_id, filename),
         )
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
         if cur.rowcount == 0:
             return False
@@ -848,6 +859,7 @@ async def clear_rag_docs(user_id: str) -> int:
     docs = await list_rag_docs(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM rag_docs WHERE user_id = ?", (user_id,))
+        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
 
     lock = await _get_chroma_lock(user_id)
@@ -1320,175 +1332,115 @@ async def handle_command(user_id: str, text: str) -> str | None:
         return await run_multi_agent_workflow(user_id, arg)
 
 
-    if cmd == "wedding":
-        connector_id = os.getenv("WORKSPACE_CONNECTOR_ID")
-        if not connector_id:
-            return "⚠️ Chưa cấu hình WORKSPACE_CONNECTOR_ID trên Railway."
-        
-        wedding_prompt = (
-            f"Bạn là trợ lý tổ chức đám cưới chuyên nghiệp. "
-            f"Hãy dùng công cụ Google Calendar để kiểm tra lịch trình chuẩn bị đám cưới của tôi và Quỳnh Như vào ngày 29/03 tới. "
-            f"Yêu cầu từ người dùng: {arg if arg else 'Xem lịch sắp tới'}"
-        )
-        
-        # Khởi tạo công cụ Calendar
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "google_calendar_get_events",
-                    "description": "Lấy danh sách sự kiện từ lịch Google",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "timeMin": {"type": "string", "description": "Thời gian bắt đầu (ISO 8601)"}
-                        }
-                    }
-                }
-            }
-        ]
-        
-        # Gọi API Llama 3.3 70B với tool_choice
-        try:
-            resp = await client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": wedding_prompt}],
-                tools=tools,
-                tool_choice="auto"
-            )
-            return strip_markdown(resp.choices[0].message.content or "Đã kiểm tra lịch xong!")
-        except Exception as e:
-            return f"⚠️ Lỗi kết nối Workspace: {str(e)}"
 
+    if cmd == "login":
+        if not GOOGLE_CLIENT_ID: return "⚠️ Thiếu GOOGLE_CLIENT_ID trên Railway."
+        redirect_uri = f"{RAILWAY_URL}/google/callback"
+        scope = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly"
+        url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={GOOGLE_CLIENT_ID}&redirect_uri={redirect_uri}&response_type=code&scope={scope}&access_type=offline&prompt=consent&state={user_id}"
+        return f"🔐 Bấm vào link sau để cấp quyền cho Bot đọc Mail & Lịch của bạn (Chỉ cần làm 1 lần duy nhất):\n\n{url}"
+
+    if cmd == "wedding":
+        access_token = await get_google_access_token(user_id)
+        if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
+        
+        async with httpx.AsyncClient() as http:
+            headers = {"Authorization": f"Bearer {access_token}"}
+            now_iso = datetime.now(TZ).isoformat()
+            resp = await http.get(f"https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={now_iso}&maxResults=10&orderBy=startTime&singleEvents=true", headers=headers)
+            events = resp.json().get("items", [])
+            
+        if not events:
+            return "📅 Không có lịch trình nào sắp tới."
+            
+        calendar_data = ""
+        for e in events:
+            start = e.get("start", {}).get("dateTime", e.get("start", {}).get("date"))
+            calendar_data += f"- {start}: {e.get('summary', 'No title')}\n"
+            
+        prompt = f"Dưới đây là lịch trình thực tế lấy từ Google Calendar. Hãy kiểm tra xem có lịch chuẩn bị đám cưới nào vào 29/03 không và tóm tắt lại thật thân thiện:\n\n{calendar_data}"
+        reply = await call_groq_text([{"role": "user", "content": prompt}], "llama-3.3-70b-versatile", user_id=user_id)
+        return strip_markdown(reply)
 
     if cmd == "ls" and arg.startswith("mail"):
+        access_token = await get_google_access_token(user_id)
+        if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
+        
         days = 1
         if len(arg.split()) > 1 and arg.split()[1].isdigit():
             days = int(arg.split()[1])
             
-        prompt = (
-            f"Hãy dùng công cụ gmail_search để tìm các email trong {days} ngày qua. "
-            f"Sau khi có kết quả từ công cụ, hãy trả về danh sách đánh số thứ tự: 1. [Người gửi] - [Ngày giờ] - [Tiêu đề]."
-        )
-        
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "gmail_search",
-                "description": "Tìm email trong hộp thư inbox",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Lọc email, vd: in:inbox newer:1d"},
-                        "truncate": {"type": "boolean"}
-                    }
-                }
-            }
-        }]
-        
-        try:
-            # Vòng lặp Agentic cho Gmail
-            messages = [{"role": "user", "content": prompt}]
-            resp = await client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                tools=tools,
-                tool_choice="auto"
-            )
+        async with httpx.AsyncClient() as http:
+            headers = {"Authorization": f"Bearer {access_token}"}
+            search_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox newer_than:{days}d&maxResults=5", headers=headers)
+            mail_list = search_resp.json().get("messages", [])
             
-            msg = resp.choices[0].message
-            if msg.tool_calls:
-                # Trả về dữ liệu Sandbox (Giả lập) siêu thực tế cho Đồ án
-                sandbox_emails = (
-                    "[DỮ LIỆU EMAIL TỪ GMAIL API]\n"
-                    "1. ID: msg_001 | Từ: The Adora Center | Ngày: Hôm nay | Tiêu đề: Xác nhận menu tiệc cưới 29/03\n"
-                    "2. ID: msg_002 | Từ: Prof. Chen (Chihlee Uni) | Ngày: Hôm qua | Tiêu đề: Feedback báo cáo tín chỉ Carbon\n"
-                    "3. ID: msg_003 | Từ: Quỳnh Như | Ngày: Hôm qua | Tiêu đề: Cập nhật danh sách khách mời phòng ban (Final)"
-                )
-                messages.append(msg)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": msg.tool_calls[0].id,
-                    "name": "gmail_search",
-                    "content": sandbox_emails
-                })
+            real_emails = ""
+            for i, m in enumerate(mail_list):
+                m_id = m["id"]
+                det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From", headers=headers)
+                headers_list = det_resp.json().get("payload", {}).get("headers", [])
+                subj = next((h["value"] for h in headers_list if h["name"] == "Subject"), "(Không tiêu đề)")
+                frm = next((h["value"] for h in headers_list if h["name"] == "From"), "Unknown")
                 
-                # Gọi LLM lần 2 để nó tổng hợp
-                resp2 = await client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=messages
-                )
-                return strip_markdown(resp2.choices[0].message.content or "Lỗi tổng hợp email.")
-            return strip_markdown(msg.content or "Không có email nào.")
-        except Exception as e:
-            return f"⚠️ Lỗi lấy danh sách Gmail: {str(e)}"
+                # Trích xuất tên người gửi ngắn gọn
+                name_match = re.match(r'^([^<]+)', frm)
+                short_frm = name_match.group(1).strip() if name_match else frm
+                
+                real_emails += f"{i+1}. ID: {m_id} | Từ: {short_frm} | Chủ đề: {subj}\n"
+                
+        if not real_emails:
+            return "📭 Không có email nào mới."
+            
+        return f"📧 Danh sách Email thực tế ({days} ngày qua):\n{real_emails}\n👉 Gõ 1, 2, 3... để đọc chi tiết."
 
     if cmd == "mail":
+        access_token = await get_google_access_token(user_id)
+        if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
+        
         history = await get_history_with_summary(user_id)
-        prompt = (
-            f"Dựa vào danh sách email bạn vừa liệt kê, hãy dùng công cụ gmail_read để đọc chi tiết mục số '{arg}'. "
-            f"Sau đó tóm tắt nội dung."
-        )
+        last_bot_msg = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
         
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "gmail_read",
-                "description": "Đọc nội dung chi tiết email",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "email_id": {"type": "string", "description": "ID của email cần đọc (vd: msg_001)"},
-                        "query": {"type": "string"}
-                    },
-                    "required": ["email_id"]
-                }
-            }
-        }]
+        match = re.search(rf"{arg}\.\s+ID:\s+([a-zA-Z0-9_-]+)", last_bot_msg)
+        if not match:
+            return "⚠️ Không tìm thấy ID email tương ứng với số bạn chọn."
+        m_id = match.group(1)
         
-        try:
-            messages = history + [{"role": "user", "content": prompt}]
-            resp = await client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                tools=tools,
-                tool_choice="auto"
-            )
+        async with httpx.AsyncClient() as http:
+            headers = {"Authorization": f"Bearer {access_token}"}
+            det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=full", headers=headers)
+            payload = det_resp.json().get("payload", {})
             
-            msg = resp.choices[0].message
-            if msg.tool_calls:
-                tool_args = msg.tool_calls[0].function.arguments
-                # Dữ liệu giả lập khớp với ID
-                sandbox_content = "Không tìm thấy nội dung."
-                if "msg_001" in tool_args:
-                    sandbox_content = "Chào Kiên, The Adora Center xin xác nhận lại menu tiệc cưới ngày 29/03 gồm 6 món như đã chốt. Vui lòng phản hồi nếu bạn muốn thay đổi món tráng miệng."
-                elif "msg_002" in tool_args:
-                    sandbox_content = "Chào em, bài báo cáo về tín chỉ carbon làm rất tốt. Tuy nhiên phần ứng dụng thực tế cần bổ sung thêm số liệu. Hẹn gặp em trên lớp để trao đổi thêm."
-                elif "msg_003" in tool_args:
-                    sandbox_content = "Em vừa chốt xong số lượng phòng và phân bổ khách mời. Anh xem qua file đính kèm nhé."
-                    
-                messages.append(msg)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": msg.tool_calls[0].id,
-                    "name": "gmail_read",
-                    "content": sandbox_content
-                })
+            def get_text(p):
+                if p.get("mimeType") == "text/plain":
+                    return p.get("body", {}).get("data", "")
+                for sub in p.get("parts", []):
+                    res = get_text(sub)
+                    if res: return res
+                return ""
                 
-                resp2 = await client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=messages
-                )
-                return strip_markdown(resp2.choices[0].message.content or "Lỗi đọc email.")
-            return strip_markdown(msg.content or "Không đọc được email.")
-        except Exception as e:
-            return f"⚠️ Lỗi đọc nội dung Gmail: {str(e)}"
-
+            body_data = get_text(payload)
+            if body_data:
+                # Xử lý Base64 URL-safe của Google
+                body_data = body_data.replace("-", "+").replace("_", "/")
+                body_data += "=" * ((4 - len(body_data) % 4) % 4)
+                import base64
+                try:
+                    content = base64.b64decode(body_data).decode('utf-8')
+                except Exception:
+                    content = det_resp.json().get("snippet", "Lỗi đọc nội dung.")
+            else:
+                content = det_resp.json().get("snippet", "Chỉ đọc được ảnh hoặc định dạng ẩn.")
+                
+        prompt = f"Dưới đây là nội dung email thực tế tôi vừa nhận. Hãy tóm tắt lại gọn gàng, liệt kê các ý chính:\n\n{content[:2000]}"
+        reply = await call_groq_text([{"role": "user", "content": prompt}], "llama-3.3-70b-versatile", user_id=user_id)
+        return strip_markdown(reply)
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
             await db.execute("DELETE FROM summary WHERE user_id = ?", (user_id,))
-            await db.commit()
+            await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
+        await db.commit()
         return "🗑 對話記錄已清除。"
 
     # ── MODELS ─────────────────────────────────────────────────────────────
@@ -1539,7 +1491,8 @@ async def handle_command(user_id: str, text: str) -> str | None:
         if arg == "clear":
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM user_profile WHERE user_id = ?", (user_id,))
-                await db.commit()
+                await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
+        await db.commit()
             return "🗑 Đã xoá thông tin cá nhân."
 
         profile = await get_user_profile(user_id)
@@ -1758,6 +1711,53 @@ app            = FastAPI(lifespan=lifespan)
 line_config    = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 webhook_parser = WebhookParser(LINE_CHANNEL_SECRET)
 
+
+
+from fastapi.responses import HTMLResponse
+
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+RAILWAY_URL = "https://line-groq-bot-production-b699.up.railway.app"
+
+async def get_google_access_token(user_id: str) -> str | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT refresh_token FROM google_auth WHERE user_id = ?", (user_id,)) as cur:
+            row = await cur.fetchone()
+    if not row: return None
+    refresh_token = row[0]
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://oauth2.googleapis.com/token", data={
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token"
+        })
+        if resp.status_code == 200:
+            return resp.json().get("access_token")
+    return None
+
+@app.get("/google/callback")
+async def google_callback(code: str, state: str):
+    user_id = state
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://oauth2.googleapis.com/token", data={
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": f"{RAILWAY_URL}/google/callback"
+        })
+        data = resp.json()
+        if "refresh_token" in data:
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "INSERT INTO google_auth (user_id, refresh_token) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET refresh_token = excluded.refresh_token",
+                    (user_id, data["refresh_token"])
+                )
+                await db.commit()
+            return HTMLResponse("<h1>✅ Cấp quyền thành công!</h1><p>Hệ thống đã kết nối với tài khoản Google. Bạn có thể đóng trang này và quay lại LINE chat với bot.</p>")
+        return HTMLResponse(f"<h1>❌ Lỗi xác thực:</h1><p>{data}</p>")
 
 @app.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
