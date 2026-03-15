@@ -832,7 +832,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
     if cmd in ("long", "short", "tokens"):
         if cmd == "long":
             val = int(arg) if arg.isdigit() else 3000
-            val = min(val, 4000)  # cap 4000
+            val = min(val, 6000)  # cap 4000
             await set_user_max_tokens(user_id, val)
             return f"Che do tra loi dai: toi da {val} tokens (~{val*4} ky tu)"
         elif cmd == "short":
@@ -873,7 +873,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
     if cmd in ("long", "short", "tokens"):
         if cmd == "long":
             val = int(arg) if arg.isdigit() else 3000
-            val = min(val, 4000)  # cap 4000
+            val = min(val, 6000)  # cap 4000
             await set_user_max_tokens(user_id, val)
             return f"Che do tra loi dai: toi da {val} tokens (~{val*4} ky tu)"
         elif cmd == "short":
