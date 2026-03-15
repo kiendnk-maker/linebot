@@ -939,10 +939,15 @@ async def handle_command(user_id: str, text: str) -> str | None:
                     rest   = rest[len(kw):].strip()
                     break
 
-            # Convert toi/chieu/pm → +12h neu can
-            is_pm = any(kw in arg.lower() for kw in ['toi', 'chieu', 'pm', 'evening', 'afternoon'])
-            if is_pm and hour < 12:
+            # Convert toi/chieu/pm → +12h
+            # Check toan bo arg (ca truoc va sau HH:MM)
+            arg_lower = arg.lower()
+            is_pm = any(kw in arg_lower for kw in ['toi', 'chieu', 'pm', 'evening', 'afternoon', 'tonight'])
+            is_am = any(kw in arg_lower for kw in ['sang', 'am', 'morning', 'trua'])
+            if is_pm and not is_am and hour < 12:
                 hour += 12
+            elif is_am and hour == 12:
+                hour = 0
             now_dt  = datetime.now(TZ)
             fire_dt = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if fire_dt <= now_dt:
