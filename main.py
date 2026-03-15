@@ -396,20 +396,22 @@ def _next_fire(fire_at: int, repeat: str) -> int:
 
 
 _PARSE_REMINDER_PROMPT = """Extract reminder info from the user message.
-Current datetime: {now_str}
+Current datetime (UTC+8): {now_str}
 
 Reply ONLY with JSON, no explanation:
-{{"is_reminder": true/false, "message": "reminder content", "time": "HH:MM", "date": "DD/MM/YYYY", "repeat": null or "daily" or "weekly" or "monthly"}}
+{{"is_reminder": true/false, "message": "reminder content", "time": "HH:MM or null", "date": "DD/MM/YYYY", "repeat": null or "daily" or "weekly" or "monthly"}}
 
 Rules:
-- Return time as HH:MM (24h format)
+- Return time as HH:MM (24h format). If no specific time → return null
 - Return date as DD/MM/YYYY
-- "hôm nay/tonight/today" → use current date {date_str}
-- "ngày mai/tomorrow" → use tomorrow date {tomorrow_str}
+- "hôm nay/tonight/today" → use {date_str}
+- "ngày mai/tomorrow" → use {tomorrow_str}
 - "mỗi ngày/every day/daily" → repeat=daily
 - "mỗi tuần/every week/weekly" → repeat=weekly
 - "mỗi tháng/every month/monthly" → repeat=monthly
-- If no date + no repeat → use today {date_str}, if time already passed → use {tomorrow_str}
+- If no date + no repeat → use {date_str}, if time passed → use {tomorrow_str}
+- Set is_reminder=true if user mentions scheduled event with time, even without explicit remind keyword
+- Examples: "tôi có họp lúc 14h", "I have meeting at 2pm", "ngày mai có thuyết trình" → is_reminder=true
 - If not a reminder → is_reminder: false
 
 User message: {message}"""
