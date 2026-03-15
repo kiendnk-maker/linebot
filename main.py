@@ -1415,16 +1415,13 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
                 total_unique = len(unique_mails)
                 total_pages = (total_unique + 4) // 5
-                ui_output = f"📬 *HỘP THƯ - TRANG {page}/{total_pages}* ({total_unique} email)\n"
-                ui_output += "━━━━━━━━━━━━━━━\n"
+                ui_output = f"📬 HỘP THƯ {page}/{total_pages} ({total_unique})\n"
 
                 for i, mail in enumerate(display_list):
                     idx = i + 1
                     await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, mail["id"]))
-
-                    ui_output += f"🔘 *[{idx}] {mail['sender_name']}*\n"
-                    ui_output += f"✉️ {mail['subject'][:45]}...\n"
-                    ui_output += "────────────────\n"
+                    subj_short = mail["subject"][:30]
+                    ui_output += f"{idx}· {mail['sender_name']} — {subj_short}\n"
                 await db.commit()
 
         # Tạo Quick Reply Buttons
