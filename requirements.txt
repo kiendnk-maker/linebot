@@ -1,7 +1,9 @@
 fastapi
-uvicorn[standard]
-line-bot-sdk
+uvicorn
 groq
-aiosqlite
 httpx
+aiosqlite
+line-bot-sdk>=3.0.0
 tzdata
+chromadb
+pdfplumber
