@@ -1159,9 +1159,7 @@ async def run_pro_workflow(user_id: str, task: str) -> str:
     thinker_prompt = (
         f"Bạn là một bộ não siêu việt chuyên phân tích vấn đề. "
         f"Hãy phân tích yêu cầu dưới đây đa chiều (logic, sáng tạo, kỹ thuật, cảm xúc, văn hóa... tùy bối cảnh). "
-        f"Đưa ra luồng suy nghĩ chi tiết, các góc nhìn cần lưu ý và lập dàn ý nội dung tốt nhất để giải quyết:
-
-"
+        f"Đưa ra luồng suy nghĩ chi tiết, các góc nhìn cần lưu ý và lập dàn ý nội dung tốt nhất để giải quyết:\n\n"
         f"YÊU CẦU: {task}"
     )
     thought_process = await call_groq_text(
@@ -1175,15 +1173,9 @@ async def run_pro_workflow(user_id: str, task: str) -> str:
     writer_prompt = (
         f"Bạn là một chuyên gia giao tiếp và học giả ngôn ngữ xuất chúng (như Claude). "
         f"Dựa trên luồng suy nghĩ và dàn ý dưới đây, hãy viết câu trả lời cuối cùng trực tiếp cho người dùng. "
-        f"Tự động điều chỉnh văn phong (code, học thuật, hài hước, trang trọng) cho phù hợp nhất với bản chất yêu cầu gốc:
-
-"
-        f"[PHÂN TÍCH & DÀN Ý CỦA BỘ NÃO]
-{thought_process}
-
-"
-        f"[YÊU CẦU GỐC CỦA NGƯỜI DÙNG]
-{task}"
+        f"Tự động điều chỉnh văn phong (code, học thuật, hài hước, trang trọng) cho phù hợp nhất với bản chất yêu cầu gốc:\n\n"
+        f"[PHÂN TÍCH & DÀN Ý CỦA BỘ NÃO]\n{thought_process}\n\n"
+        f"[YÊU CẦU GỐC CỦA NGƯỜI DÙNG]\n{task}"
     )
     final_answer = await call_groq_text(
         history=[{"role": "user", "content": writer_prompt}],
@@ -1192,11 +1184,7 @@ async def run_pro_workflow(user_id: str, task: str) -> str:
         user_id=user_id
     )
 
-    return f"🧠 [CHẾ ĐỘ PRO - DEEP THINKING]
-──────────────
-{final_answer}"
-
-
+    return f"🧠 [CHẾ ĐỘ PRO - DEEP THINKING]\n──────────────\n{final_answer}"
 
 import json
 import datetime
