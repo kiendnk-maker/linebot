@@ -897,6 +897,12 @@ async def handle_command(user_id: str, text: str) -> str | None:
         await save_user_profile(user_id, **{field_map[field]: value})
         return "Da luu " + field + ": " + value
 
+    if cmd == "profile" and arg == "clear":
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("DELETE FROM user_profile WHERE user_id = ?", (user_id,))
+            await db.commit()
+        return "Da xoa toan bo thong tin ca nhan."
+
     # /remind commands
     if cmd == "remind":
         if arg == "list":
