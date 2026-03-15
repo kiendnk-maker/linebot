@@ -736,6 +736,38 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
             return f"⚠️ Whisper 錯誤: {str(e)[:150]}"
 
 
+async def clean_transcript(transcript: str) -> str:
+    """
+    Dung gpt120b sua loi chinh ta, nghe nham tu Whisper.
+    Chi sua loi, khong thay doi y nghia hay them noi dung.
+    """
+    async with httpx.AsyncClient() as http:
+        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+        try:
+            resp = await client.chat.completions.create(
+                model=MODEL_REGISTRY["gpt120b"]["model_id"],
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        "Day la transcript tu nhan dang giong noi tu dong, co the co loi nghe nham, "
+                        "sai chinh ta, hoac tu bi thay the sai nghia.\n"
+                        "Nhiem vu: sua lai cho dung nghia nhat co the, giu nguyen ngon ngu goc.\n"
+                        "Vi du loi thuong gap:\n"
+                        "- 'cung mot' co the la '14h' hoac so gio khac\n"
+                        "- 'thuc trinh' -> 'thuyet trinh'\n"
+                        "Chi tra ve cau da sua, khong giai thich, khong them noi dung.\n\n"
+                        f"Transcript: {transcript}"
+                    ),
+                }],
+                temperature=0.0,
+                max_tokens=300,
+            )
+            cleaned = resp.choices[0].message.content.strip()
+            return cleaned if cleaned else transcript
+        except Exception:
+            return transcript
+
+
 # ---------------------------------------------------------------------------
 # COMMAND SYSTEM
 # ---------------------------------------------------------------------------
@@ -1001,6 +1033,10 @@ async def process_event(event: MessageEvent) -> None:
             transcript  = await call_groq_whisper(audio_bytes)
 
             if "⚠️" not in transcript:
+                # Clean transcript truoc khi xu ly
+                transcript = await clean_transcript(transcript)
+                logger.info(f'AUDIO cleaned | user={user_id} | text={transcript[:50]!r}')
+
                 wants_reply = any(
                     transcript.strip().lower().startswith(t.lower())
                     for t in _REPLY_TRIGGERS
@@ -1011,16 +1047,28 @@ async def process_event(event: MessageEvent) -> None:
                         if clean_text.lower().startswith(t.lower()):
                             clean_text = clean_text[len(t):].strip()
                             break
-                    await save_message(user_id, "user", clean_text)
-                    model_key, model_id = await resolve_model(user_id, clean_text)
-                    history = await get_history_with_summary(user_id)
-                    answer  = await call_groq_text(history, model_id, model_key=model_key, user_id=user_id)
-                    await save_message(user_id, "assistant", answer)
-                    await maybe_summarize(user_id)
-                    reply = f"🎤 {clean_text}\n\n{answer}"
+                    # Check reminder truoc khi goi LLM
+                    reminder_reply = await parse_reminder_nlp(user_id, clean_text)
+                    logger.info(f'REMINDER wants_reply | user={user_id} | result={reminder_reply is not None}')
+                    if reminder_reply:
+                        reply = f"🎤 {clean_text}\n\n{reminder_reply}"
+                    else:
+                        await save_message(user_id, "user", clean_text)
+                        model_key, model_id = await resolve_model(user_id, clean_text)
+                        history = await get_history_with_summary(user_id)
+                        answer  = await call_groq_text(history, model_id, model_key=model_key, user_id=user_id)
+                        await save_message(user_id, "assistant", answer)
+                        await maybe_summarize(user_id)
+                        reply = f"🎤 {clean_text}\n\n{answer}\n\n[{MODEL_REGISTRY[model_key]['display']}]"
                 else:
-                    await save_message(user_id, "user", f"[Voice]: {transcript}")
-                    reply = f"🎤 {transcript}"
+                    # Transcribe only — clean + check reminder
+                    reminder_reply = await parse_reminder_nlp(user_id, transcript)
+                    logger.info(f'REMINDER transcribe | user={user_id} | result={reminder_reply is not None}')
+                    if reminder_reply:
+                        reply = f"🎤 {transcript}\n\n{reminder_reply}"
+                    else:
+                        await save_message(user_id, "user", f"[Voice]: {transcript}")
+                        reply = f"🎤 {transcript}"
             else:
                 reply = transcript
 
