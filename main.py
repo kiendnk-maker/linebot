@@ -616,6 +616,8 @@ async def reminder_loop() -> None:
 # ---------------------------------------------------------------------------
 def strip_markdown(text: str) -> str:
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    # Fallback: xoa <think> chua dong tag
+    text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
     text = re.sub(r"```[a-zA-Z]*\n?", "", text)
     text = re.sub(r"```", "", text)
     text = re.sub(r"`([^`]+)`", r"\1", text)
@@ -937,6 +939,10 @@ async def handle_command(user_id: str, text: str) -> str | None:
                     rest   = rest[len(kw):].strip()
                     break
 
+            # Convert toi/chieu/pm → +12h neu can
+            is_pm = any(kw in arg.lower() for kw in ['toi', 'chieu', 'pm', 'evening', 'afternoon'])
+            if is_pm and hour < 12:
+                hour += 12
             now_dt  = datetime.now(TZ)
             fire_dt = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if fire_dt <= now_dt:
