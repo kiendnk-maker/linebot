@@ -1120,6 +1120,42 @@ def _models_list_text() -> str:
     ])
 
 
+
+async def run_multi_agent_workflow(user_id: str, task: str) -> str:
+    planner_prompt = f"Bạn là một System Architect (Kiến trúc sư phần mềm). Nhiệm vụ của bạn là phân tích và lập kế hoạch từng bước rõ ràng để giải quyết yêu cầu sau:\n\nYÊU CẦU: {task}\n\nChỉ trả về các bước lập trình, không cần viết code."
+    plan = await call_groq_text(
+        history=[{"role": "user", "content": planner_prompt}],
+        model_id=MODEL_REGISTRY["qwen"]["model_id"],
+        model_key="qwen",
+        user_id=user_id
+    )
+
+    coder_prompt = f"Bạn là một Senior Developer. Dựa vào bản thiết kế dưới đây, hãy viết mã nguồn hoàn chỉnh và tối ưu nhất:\n\n[BẢN THIẾT KẾ]\n{plan}\n\n[YÊU CẦU GỐC]\n{task}"
+    code = await call_groq_text(
+        history=[{"role": "user", "content": coder_prompt}],
+        model_id=MODEL_REGISTRY["llama70b"]["model_id"],
+        model_key="llama70b",
+        user_id=user_id
+    )
+
+    reviewer_prompt = f"Bạn là một QA & Security Engineer khắt khe. Hãy kiểm tra đoạn mã sau xem có lỗi logic, lỗ hổng bảo mật, hoặc điểm nào cần tối ưu hiệu năng không. Đưa ra nhận xét và cách sửa (nếu có):\n\n[MÃ NGUỒN CẦN DUYỆT]\n{code}"
+    review = await call_groq_text(
+        history=[{"role": "user", "content": reviewer_prompt}],
+        model_id=MODEL_REGISTRY["gpt120b"]["model_id"],
+        model_key="gpt120b",
+        user_id=user_id
+    )
+
+    final_output = (
+        f"🚀 [MULTI-AGENT WORKFLOW THÀNH CÔNG]\n"
+        f"Tác vụ: {task}\n"
+        f"──────────────\n"
+        f"📝 1. PLANNER (Qwen):\nĐã lập kế hoạch {len(plan.split())} từ.\n\n"
+        f"💻 2. CODER (LLaMA 70B):\n{code}\n\n"
+        f"🔎 3. REVIEWER (GPT-120B):\n{review}"
+    )
+    return final_output
+
 async def handle_command(user_id: str, text: str) -> str | None:
     if not text.startswith("/"):
         return None
@@ -1129,6 +1165,12 @@ async def handle_command(user_id: str, text: str) -> str | None:
     arg   = parts[1].strip() if len(parts) > 1 else ""
 
     # ── CLEAR ──────────────────────────────────────────────────────────────
+
+    if cmd == "dev":
+        if not arg:
+            return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /dev Viết hàm Python tính dãy Fibonacci"
+        return await run_multi_agent_workflow(user_id, arg)
+
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
