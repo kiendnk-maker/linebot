@@ -186,6 +186,21 @@ async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
     return routed_key, MODEL_REGISTRY[routed_key]["model_id"]
 
 
+async def resolve_model_and_reminder(
+    user_id: str,
+    user_text: str,
+) -> tuple[tuple[str, str], str | None]:
+    """
+    Chạy resolve_model và parse_reminder_nlp song song.
+    Returns ((model_key, model_id), reminder_reply)
+    """
+    (model_key, model_id), reminder_reply = await asyncio.gather(
+        resolve_model(user_id, user_text),
+        parse_reminder_nlp(user_id, user_text),
+    )
+    return (model_key, model_id), reminder_reply
+
+
 # ---------------------------------------------------------------------------
 # DATABASE
 # ---------------------------------------------------------------------------
@@ -940,12 +955,11 @@ async def process_event(event: MessageEvent) -> None:
                         f"Vui lòng giới hạn dưới {MAX_INPUT_CHARS} ký tự."
                     )
                 else:
-                    # Natural language reminder detection
-                    reminder_reply = await parse_reminder_nlp(user_id, user_text)
+                    # Chạy reminder detection + model routing song song
+                    (model_key, model_id), reminder_reply = await resolve_model_and_reminder(user_id, user_text)
                     if reminder_reply:
                         reply = reminder_reply
                     else:
-                        model_key, model_id = await resolve_model(user_id, user_text)
 
                         # Text dài không có câu hỏi → inject tóm tắt instruction
                         if len(user_text) > 500 and "?" not in user_text and "？" not in user_text:
