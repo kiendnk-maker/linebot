@@ -117,7 +117,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "note":    "唯一視覺模型，低延遲",
     },
     "qwen": {
-        "model_id": "qwen/qwen-3-32b",
+        "model_id": "qwen/qwen3-32b",
         "type":    "reasoning",
         "tier":    "preview",
         "display": "Qwen3 32B",
