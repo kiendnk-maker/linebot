@@ -1493,7 +1493,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 await db.execute("DELETE FROM user_profile WHERE user_id = ?", (user_id,))
                 await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.commit()
-            return "🗑 Đã xoá thông tin cá nhân."
+        return "🗑 Đã xoá thông tin cá nhân."
 
         profile = await get_user_profile(user_id)
         if not arg:
