@@ -700,22 +700,19 @@ async def reminder_loop() -> None:
 # MARKDOWN STRIPPER
 # ---------------------------------------------------------------------------
 def strip_markdown(text: str) -> str:
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
-    text = re.sub(r"```[a-zA-Z]*\n?", "", text)
-    text = re.sub(r"```", "", text)
-    text = re.sub(r"`([^`]+)`", r"\1", text)
-    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
-    text = re.sub(r"_{1,2}([^_]+)_{1,2}", r"\1", text)
-    text = re.sub(r"~~([^~]+)~~", r"\1", text)
-    text = re.sub(r"^[\-\*]\s+", "• ", text, flags=re.MULTILINE)
-    text = re.sub(r"^(-{3,}|\*{3,}|_{3,})\s*$", "─────", text, flags=re.MULTILINE)
-    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
-    text = re.sub(r"^>\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
 
+    # Tách các khối code (```...```) ra để bảo vệ tuyệt đối
+    parts_text = re.split(r'(```.*?```)', text, flags=re.DOTALL)
+    for i in range(0, len(parts_text), 2):
+        p = parts_text[i]
+        p = re.sub(r"<think>.*?</think>", "", p, flags=re.DOTALL)
+        p = re.sub(r"\*\*(.*?)\*\*", r"\1", p)                 # Xóa dấu in đậm
+        p = re.sub(r"^#{1,6}\s+", "", p, flags=re.MULTILINE)     # Xóa dấu heading
+        p = re.sub(r"^[\-\*]\s+", "• ", p, flags=re.MULTILINE)   # Đổi list thành dấu chấm tròn
+        p = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", p)  # Rút gọn Link
+        p = re.sub(r"\n{3,}", "\n\n", p)
+        parts_text[i] = p
+    return "".join(parts_text).strip()
 
 # ---------------------------------------------------------------------------
 # RAG — embedding
@@ -998,7 +995,7 @@ async def call_groq_text(
                 max_tokens=max_tok,
                 **extra,
             )
-            return strip_markdown(resp.choices[0].message.content or "")
+            return (resp.choices[0].message.content or "").strip()
         except Exception as e:
             err = str(e)
             # Compound 400 → fallback to llama70b (SPEC §11)
@@ -1011,7 +1008,7 @@ async def call_groq_text(
                         temperature=0.6,
                         max_tokens=max_tok,
                     )
-                    return strip_markdown(resp.choices[0].message.content or "")
+                    return (resp.choices[0].message.content or "").strip()
                 except Exception as e2:
                     return f"⚠️ 錯誤 [{fallback_id}]: {str(e2)[:150]}"
             return f"⚠️ 錯誤 [{model_id}]: {err[:150]}"
@@ -1047,7 +1044,7 @@ async def call_groq_vision(image_b64: str) -> str:
                 ],
                 max_tokens=800,
             )
-            return strip_markdown(resp.choices[0].message.content or "")
+            return (resp.choices[0].message.content or "").strip()
         except Exception as e:
             return f"⚠️ 視覺錯誤: {str(e)[:150]}"
 
@@ -1634,6 +1631,7 @@ async def process_event(event: MessageEvent) -> None:
 
         # ── LAYER 4: REPLY ─────────────────────────────────────────────────
         if reply:
+            reply = strip_markdown(reply)
             chunks = _split_reply(reply)
             await line_api.reply_message(
                 ReplyMessageRequest(
