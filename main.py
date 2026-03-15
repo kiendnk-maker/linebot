@@ -1358,173 +1358,59 @@ async def handle_command(user_id: str, text: str) -> str | None:
         return strip_markdown(reply)
 
     if cmd == "ls" and arg.startswith("mail"):
-            page = 1
-            if arg.replace("mail", "").strip().isdigit():
-                page = int(arg.replace("mail", "").strip())
-            
+        access_token = await get_google_access_token(user_id)
+        if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
+
+        page = 1
+        if arg.replace("mail", "").strip().isdigit():
+            page = int(arg.replace("mail", "").strip())
+
+        async with httpx.AsyncClient() as http:
+            headers = {"Authorization": f"Bearer {access_token}"}
             params = {"q": "in:inbox newer_than:3d", "maxResults": 50}
-            resp = await http.get("https://gmail.googleapis.com/gmail/v1/users/me/messages", 
+            resp = await http.get("https://gmail.googleapis.com/gmail/v1/users/me/messages",
                                   headers=headers, params=params)
             mail_list = resp.json().get("messages", [])
-            
+
             if not mail_list: return "📬 Hộp thư của bạn đang trống."
 
             start_idx = (page - 1) * 5
             end_idx = start_idx + 5
             display_list = mail_list[start_idx:end_idx]
-            
+
             if not display_list: return f"⚠️ Trang {page} không có email nào."
 
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
-                ui_output = f"📬 *HỘP THƯ - TRANG {page}*
-"
-                ui_output += "━━━━━━━━━━━━━━━
-"
-                
+                ui_output = f"📬 *HỘP THƯ - TRANG {page}*\n"
+                ui_output += "━━━━━━━━━━━━━━━\n"
+
                 for i, m in enumerate(display_list):
                     m_id = m["id"]
                     idx = i + 1
                     await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, m_id))
-                    
+
                     det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From", headers=headers)
                     h_data = det_resp.json().get("payload", {}).get("headers", [])
                     subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
                     frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
                     sender = re.sub(r'<.*?>', '', frm).strip()[:20]
-                    
-                    ui_output += f"🔘 *[{idx}] {sender}*
-"
-                    ui_output += f"✉️ {subj[:45]}...
-"
-                    ui_output += "────────────────
-"
+
+                    ui_output += f"🔘 *[{idx}] {sender}*\n"
+                    ui_output += f"✉️ {subj[:45]}...\n"
+                    ui_output += "────────────────\n"
                 await db.commit()
 
-            # Tạo Quick Reply Buttons để điều hướng "thả ga"
-            qr_items = []
-            if page > 1:
-                qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}"}})
-            if len(mail_list) > end_idx:
-                qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}"}})
-            qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": "/ls mail 1"}})
+        # Tạo Quick Reply Buttons
+        qr_items = []
+        if page > 1:
+            qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}"}})
+        if len(mail_list) > end_idx:
+            qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}"}})
+        qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": "/ls mail 1"}})
 
-            return {"text": ui_output, "quickReply": {"items": qr_items}}
+        return {"text": ui_output, "quickReply": {"items": qr_items}}
 
-            start_idx = (page - 1) * 5
-            end_idx = start_idx + 5
-            display_list = mail_list[start_idx:end_idx]
-            
-            if not display_list: return f"⚠️ Trang {page} không có email nào."
-
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
-                ui_output = f"📬 *HỘP THƯ - TRANG {page}*
-"
-                ui_output += "━━━━━━━━━━━━━━━
-"
-                
-                for i, m in enumerate(display_list):
-                    m_id = m["id"]
-                    idx = i + 1
-                    await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, m_id))
-                    
-                    det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From", headers=headers)
-                    h_data = det_resp.json().get("payload", {}).get("headers", [])
-                    subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
-                    frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
-                    sender = re.sub(r'<.*?>', '', frm).strip()[:20]
-                    
-                    ui_output += f"🔘 *[{idx}] {sender}*
-"
-                    ui_output += f"✉️ {subj[:45]}...
-"
-                    ui_output += "────────────────
-"
-                await db.commit()
-
-            # Tạo Quick Reply Buttons để điều hướng "thả ga"
-            qr_items = []
-            if page > 1:
-                qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}"}})
-            if len(mail_list) > end_idx:
-                qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}"}})
-            qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": "/ls mail 1"}})
-
-            return {"text": ui_output, "quickReply": {"items": qr_items}}
-
-            start_idx = (page - 1) * 5
-            end_idx = start_idx + 5
-            display_list = mail_list[start_idx:end_idx]
-            
-            if not display_list: return f"⚠️ Trang {page} không có email nào."
-
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
-                
-                ui_output = f"📬 *HỘP THƯ - TRANG {page}*
-"
-                ui_output += "━━━━━━━━━━━━━━━
-"
-                
-                for i, m in enumerate(display_list):
-                    m_id = m["id"]
-                    idx = i + 1
-                    await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, m_id))
-                    
-                    det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From", headers=headers)
-                    h_data = det_resp.json().get("payload", {}).get("headers", [])
-                    subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
-                    frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
-                    sender = re.sub(r'<.*?>', '', frm).strip()[:20]
-                    
-                    ui_output += f"🔘 *[{idx}] {sender}*
-"
-                    ui_output += f"✉️ {subj[:45]}...
-"
-                    ui_output += "────────────────
-"
-                await db.commit()
-
-            # Tạo Quick Reply Buttons
-            qr_items = []
-            if page > 1:
-                qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}"}})
-            if len(mail_list) > end_idx:
-                qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}"}})
-            qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": "/ls mail 1"}})
-
-            return {"text": ui_output, "quickReply": {"items": qr_items}}
-        
-        days = 1
-        if len(arg.split()) > 1 and arg.split()[1].isdigit():
-            days = int(arg.split()[1])
-            
-        async with httpx.AsyncClient() as http:
-            headers = {"Authorization": f"Bearer {access_token}"}
-            search_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox newer_than:{days}d&maxResults=5", headers=headers)
-            mail_list = search_resp.json().get("messages", [])
-            
-            real_emails = ""
-            for i, m in enumerate(mail_list):
-                m_id = m["id"]
-                det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From", headers=headers)
-                headers_list = det_resp.json().get("payload", {}).get("headers", [])
-                subj = next((h["value"] for h in headers_list if h["name"] == "Subject"), "(Không tiêu đề)")
-                frm = next((h["value"] for h in headers_list if h["name"] == "From"), "Unknown")
-                
-                # Trích xuất tên người gửi ngắn gọn
-                name_match = re.match(r'^([^<]+)', frm)
-                short_frm = name_match.group(1).strip() if name_match else frm
-                
-                real_emails += f"{i+1}. ID: {m_id} | Từ: {short_frm} | Chủ đề: {subj}\n"
-                
-        if not real_emails:
-            return "📭 Không có email nào mới."
-            
-        return f"📧 Danh sách Email thực tế ({days} ngày qua):\n{real_emails}\n👉 Gõ 1, 2, 3... để đọc chi tiết."
-
-    
     if cmd == "mail":
         access_token = await get_google_access_token(user_id)
         if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
@@ -2105,4 +1991,3 @@ async def process_event(event: MessageEvent) -> None:
 # Fix Syntax & Enable QR: Mon Mar 16 04:52:01 CST 2026
 # Fix Syntax & Enable QR: Mon Mar 16 05:15:55 CST 2026
 # Syntax fix for line 1380 - Mon Mar 16 05:21:46 CST 2026
-# Surgical Fix Syntax line 1380 - Mon Mar 16 05:24:37 CST 2026
