@@ -178,12 +178,13 @@ async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
     if current_key != DEFAULT_MODEL_KEY:
         return current_key, MODEL_REGISTRY[current_key]["model_id"]
 
-    if _needs_realtime(user_text):
-        return "compound-mini", MODEL_REGISTRY["compound-mini"]["model_id"]
-
-    # Text dài không có câu hỏi → tóm tắt/phân tích → llama70b
+    # Long text without question → summarize → llama70b
     if len(user_text) > 500 and "?" not in user_text and "？" not in user_text:
         return "llama70b", MODEL_REGISTRY["llama70b"]["model_id"]
+
+    # Realtime keywords → compound-mini (after long-text check)
+    if _needs_realtime(user_text):
+        return "compound-mini", MODEL_REGISTRY["compound-mini"]["model_id"]
 
     routed_key = await classify_query(user_text)
     return routed_key, MODEL_REGISTRY[routed_key]["model_id"]
@@ -206,15 +207,6 @@ async def init_db() -> None:
         await db.execute(
             "CREATE TABLE IF NOT EXISTS summary "
             "(user_id TEXT PRIMARY KEY, content TEXT, updated_at INTEGER)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS user_settings2 "
-            "(user_id TEXT PRIMARY KEY, max_tokens INTEGER NOT NULL DEFAULT 800)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS user_profile "
-            "(user_id TEXT PRIMARY KEY, "
-            " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
         )
         await db.execute(
             "CREATE TABLE IF NOT EXISTS user_settings2 "
@@ -289,6 +281,7 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
 
 
 async def build_system_prompt(user_id: str, model_key: str) -> str:
+    """Inject user profile into system prompt if available."""
     base = get_system_prompt(model_key)
     profile = await get_user_profile(user_id)
     if not profile:
@@ -375,7 +368,7 @@ async def save_summary(user_id: str, content: str) -> None:
 
 
 async def maybe_summarize(user_id: str) -> None:
-    """Tóm tắt tự động sau mỗi SUMMARY_TRIGGER tin nhắn."""
+    """Auto-summarize every SUMMARY_TRIGGER messages."""
     count = await count_history(user_id)
     if count % SUMMARY_TRIGGER != 0:
         return
@@ -410,10 +403,7 @@ async def maybe_summarize(user_id: str) -> None:
 
 
 async def get_history_with_summary(user_id: str) -> list[dict]:
-    """
-    Trả về summary + 5 tin gần nhất.
-    Tiết kiệm ~60% token so với raw history 30 tin.
-    """
+    """Return summary + 5 recent messages. Saves ~60% tokens vs raw 30 messages."""
     summary = await get_summary(user_id)
     recent  = await get_history_raw(user_id, limit=5)
 
@@ -472,7 +462,6 @@ def _next_fire(fire_at: int, repeat: str) -> int:
     elif repeat == "weekly":
         dt += timedelta(weeks=1)
     elif repeat == "monthly":
-        # Tăng tháng thủ công không cần dateutil
         month = dt.month + 1
         year  = dt.year + (1 if month > 12 else 0)
         month = month if month <= 12 else 1
@@ -480,6 +469,7 @@ def _next_fire(fire_at: int, repeat: str) -> int:
     return int(dt.timestamp())
 
 
+# Per spec: llama8b returns time/date as strings, Python calculates fire_at
 _PARSE_REMINDER_PROMPT = """Extract reminder info from the user message.
 Current datetime (UTC+8): {now_str}
 
@@ -508,10 +498,12 @@ User message: {message}"""
 async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
     """
     Parse natural language reminder.
-    Returns confirm string nếu tạo được, None nếu không phải reminder.
+    NOTE: Python calculates fire_at from llama8b time/date output — NOT llama8b.
     """
-    now     = int(datetime.now(TZ).timestamp())
-    now_str = datetime.now(TZ).strftime("%H:%M %d/%m/%Y %A")
+    now_dt       = datetime.now(TZ)
+    now_str      = now_dt.strftime("%H:%M %d/%m/%Y %A")
+    date_str     = now_dt.strftime("%d/%m/%Y")
+    tomorrow_str = (now_dt + timedelta(days=1)).strftime("%d/%m/%Y")
 
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
@@ -521,7 +513,10 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
                 messages=[{
                     "role": "user",
                     "content": _PARSE_REMINDER_PROMPT.format(
-                        now=now, now_str=now_str, message=user_text[:300]
+                        now_str=now_str,
+                        date_str=date_str,
+                        tomorrow_str=tomorrow_str,
+                        message=user_text[:300],
                     ),
                 }],
                 temperature=0.0,
@@ -530,19 +525,44 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
             text = resp.choices[0].message.content or ""
             text = re.sub(r"```[a-z]*\n?|```", "", text).strip()
             data = json.loads(text)
-            import logging as _log
-            _log.getLogger(__name__).info(f'REMINDER JSON | {data}')
+            logger.info(f"REMINDER JSON | {data}")
 
             if not data.get("is_reminder"):
                 return None
 
-            fire_at = int(data["fire_at"])
-            message = data["message"]
-            repeat  = data.get("repeat")
+            time_str  = data.get("time")
+            date_str2 = data.get("date", date_str)
+            repeat    = data.get("repeat")
+            message   = user_text  # use cleaned transcript as message
 
+            # No specific time → ask user
+            if not time_str or time_str == "null":
+                content = data.get("message", user_text)
+                return f"Muon nhac '{content}' luc may gio?"
+
+            # Python calculates fire_at — NOT llama8b
+            hour, minute = map(int, time_str.split(":"))
+            day, month, year = map(int, date_str2.split("/"))
+            if year < 100:
+                year += 2000
+
+            try:
+                fire_dt = now_dt.replace(
+                    year=year, month=month, day=day,
+                    hour=hour, minute=minute, second=0, microsecond=0,
+                )
+            except ValueError:
+                fire_dt = now_dt.replace(
+                    hour=hour, minute=minute, second=0, microsecond=0,
+                )
+
+            # If time already passed and no repeat → next day
+            if fire_dt <= now_dt and not repeat:
+                fire_dt += timedelta(days=1)
+
+            fire_at = int(fire_dt.timestamp())
             rid = await save_reminder(user_id, message, fire_at, repeat)
 
-            fire_dt    = datetime.fromtimestamp(fire_at, tz=TZ)
             repeat_str = {
                 "daily":   " (lặp hàng ngày)",
                 "weekly":  " (lặp hàng tuần)",
@@ -559,7 +579,7 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
 
 
 async def reminder_loop() -> None:
-    """Background task — kiểm tra reminder mỗi 30 giây."""
+    """Background task — check reminders every 30 seconds."""
     while True:
         await asyncio.sleep(30)
         now = int(datetime.now(TZ).timestamp())
@@ -611,8 +631,7 @@ async def reminder_loop() -> None:
 # ---------------------------------------------------------------------------
 def strip_markdown(text: str) -> str:
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    # Fallback: xoa <think> chua dong tag
-    text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
+    text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)  # unclosed tags
     text = re.sub(r"```[a-zA-Z]*\n?", "", text)
     text = re.sub(r"```", "", text)
     text = re.sub(r"`([^`]+)`", r"\1", text)
@@ -643,17 +662,17 @@ async def call_groq_text(
         else get_system_prompt(model_key)
     )
 
-    # Compound models require last message role to be "user"
+    # Compound models require last message role = "user"
     clean_history = list(history)
     while clean_history and clean_history[-1]["role"] == "assistant":
         clean_history.pop()
 
-    # reasoning_effort=low cho gpt120b — tiet kiem token, du cho chat
+    # reasoning_effort=low for gpt120b — saves tokens per spec
     extra: dict = {}
     if model_id == MODEL_REGISTRY["gpt120b"]["model_id"]:
         extra["reasoning_effort"] = "low"
 
-    # max_tokens: uu tien user setting, fallback theo model
+    # max_tokens: user setting takes priority, fallback by model type
     user_max = await get_user_max_tokens(user_id) if user_id else 800
     max_tok  = user_max if user_max != 800 else (
         1500 if model_key in ("qwen", "gpt120b", "gpt20b") else 800
@@ -689,6 +708,7 @@ async def call_groq_text(
 
 
 async def call_groq_vision(image_b64: str) -> str:
+    """Always uses scout — only vision model on Groq."""
     model_id = MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"]
     system   = get_system_prompt(VISION_MODEL_KEY)
     async with httpx.AsyncClient() as http:
@@ -737,10 +757,7 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
 
 
 async def clean_transcript(transcript: str) -> str:
-    """
-    Dung gpt120b sua loi chinh ta, nghe nham tu Whisper.
-    Chi sua loi, khong thay doi y nghia hay them noi dung.
-    """
+    """Use gpt120b to fix Whisper transcription errors."""
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
         try:
@@ -791,6 +808,8 @@ def _models_list_text() -> str:
         "自動模式：/auto",
         "清除紀錄：/clear",
         "提醒清單：/remind list",
+        "回覆長度：/long [tokens] | /short | /tokens",
+        "個人資料：/profile",
     ])
 
 
@@ -834,20 +853,22 @@ async def handle_command(user_id: str, text: str) -> str | None:
         await set_user_model(user_id, target)
         return f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
 
-    # ── REMIND COMMANDS ────────────────────────────────────────────────────
-    if cmd in ("long", "short", "tokens"):
-        if cmd == "long":
-            val = int(arg) if arg.isdigit() else 3000
-            val = min(val, 6000)  # cap 4000
-            await set_user_max_tokens(user_id, val)
-            return f"Che do tra loi dai: toi da {val} tokens (~{val*4} ky tu)"
-        elif cmd == "short":
-            await set_user_max_tokens(user_id, 800)
-            return "Che do tra loi ngan: 800 tokens (mac dinh)"
-        else:  # /tokens
-            val = await get_user_max_tokens(user_id)
-            return f"Max tokens hien tai: {val} (~{val*4} ky tu)"
+    # /long /short /tokens — reply length control
+    if cmd == "long":
+        val = int(arg) if arg.isdigit() else 3000
+        val = min(val, 6000)
+        await set_user_max_tokens(user_id, val)
+        return f"Che do tra loi dai: toi da {val} tokens (~{val*4} ky tu)"
 
+    if cmd == "short":
+        await set_user_max_tokens(user_id, 800)
+        return "Che do tra loi ngan: 800 tokens (mac dinh)"
+
+    if cmd == "tokens":
+        val = await get_user_max_tokens(user_id)
+        return f"Max tokens hien tai: {val} (~{val*4} ky tu)"
+
+    # /profile — user profile memory
     if cmd == "profile":
         profile = await get_user_profile(user_id)
         if not arg:
@@ -876,49 +897,8 @@ async def handle_command(user_id: str, text: str) -> str | None:
         await save_user_profile(user_id, **{field_map[field]: value})
         return "Da luu " + field + ": " + value
 
-    if cmd in ("long", "short", "tokens"):
-        if cmd == "long":
-            val = int(arg) if arg.isdigit() else 3000
-            val = min(val, 6000)  # cap 4000
-            await set_user_max_tokens(user_id, val)
-            return f"Che do tra loi dai: toi da {val} tokens (~{val*4} ky tu)"
-        elif cmd == "short":
-            await set_user_max_tokens(user_id, 800)
-            return "Che do tra loi ngan: 800 tokens (mac dinh)"
-        else:  # /tokens
-            val = await get_user_max_tokens(user_id)
-            return f"Max tokens hien tai: {val} (~{val*4} ky tu)"
-
-    if cmd == "profile":
-        profile = await get_user_profile(user_id)
-        if not arg:
-            if not profile:
-                return (
-                    "Chua co thong tin ca nhan.\n"
-                    "Cap nhat:\n"
-                    "/profile name Ten ban\n"
-                    "/profile job Nghe nghiep\n"
-                    "/profile learning Tieng Trung B1\n"
-                    "/profile note Ghi chu them"
-                )
-            lines = ["Thong tin cua ban:\n"]
-            if profile.get("name"):       lines.append("Ten: " + profile["name"])
-            if profile.get("occupation"): lines.append("Nghe: " + profile["occupation"])
-            if profile.get("learning"):   lines.append("Dang hoc: " + profile["learning"])
-            if profile.get("notes"):      lines.append("Ghi chu: " + profile["notes"])
-            return "\n".join(lines)
-        parts2 = arg.split(maxsplit=1)
-        if len(parts2) < 2:
-            return "Dung: /profile name|job|learning|note <noi dung>"
-        field, value = parts2[0].lower(), parts2[1]
-        field_map = {"name": "name", "job": "occupation", "learning": "learning", "note": "notes"}
-        if field not in field_map:
-            return "Field hop le: name, job, learning, note"
-        await save_user_profile(user_id, **{field_map[field]: value})
-        return "Da luu " + field + ": " + value
-
+    # /remind commands
     if cmd == "remind":
-        # /remind list
         if arg == "list":
             reminders = await get_reminders(user_id)
             if not reminders:
@@ -938,7 +918,6 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 )
             return "\n".join(lines)
 
-        # /remind <id> cancel
         parts2 = arg.split()
         if len(parts2) == 2 and parts2[1] == "cancel":
             try:
@@ -948,7 +927,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
             except ValueError:
                 pass
 
-        # /remind HH:MM [daily|weekly|monthly] nội dung
+        # /remind HH:MM [repeat] [tối|sáng] [ngày DD/MM] content
         time_match = re.match(r"(\d{1,2}):(\d{2})\s+(.*)", arg)
         if time_match:
             hour   = int(time_match[1])
@@ -966,24 +945,43 @@ async def handle_command(user_id: str, text: str) -> str | None:
                     rest   = rest[len(kw):].strip()
                     break
 
-            # Convert toi/chieu/pm → +12h
-            # Check toan bo arg (ca truoc va sau HH:MM)
+            # PM/AM conversion — check full arg string
             arg_lower = arg.lower()
-            is_pm = any(kw in arg_lower for kw in ['toi', 'chieu', 'pm', 'evening', 'afternoon', 'tonight'])
-            is_am = any(kw in arg_lower for kw in ['sang', 'am', 'morning', 'trua'])
+            is_pm = any(kw in arg_lower for kw in ["toi", "chieu", "pm", "evening", "afternoon", "tonight"])
+            is_am = any(kw in arg_lower for kw in ["sang", "am", "morning", "trua"])
             if is_pm and not is_am and hour < 12:
                 hour += 12
             elif is_am and hour == 12:
                 hour = 0
-            now_dt  = datetime.now(TZ)
-            fire_dt = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if fire_dt <= now_dt:
-                fire_dt += timedelta(days=1)
+
+            now_dt = datetime.now(TZ)
+
+            # Detect specific date in rest
+            date_match = re.search(r"(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?", rest)
+            if date_match:
+                d = int(date_match.group(1))
+                m = int(date_match.group(2))
+                y = int(date_match.group(3)) if date_match.group(3) else now_dt.year
+                if y < 100:
+                    y += 2000
+                try:
+                    fire_dt = now_dt.replace(
+                        year=y, month=m, day=d,
+                        hour=hour, minute=minute, second=0, microsecond=0,
+                    )
+                except ValueError:
+                    fire_dt = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    if fire_dt <= now_dt:
+                        fire_dt += timedelta(days=1)
+            else:
+                fire_dt = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if fire_dt <= now_dt:
+                    fire_dt += timedelta(days=1)
 
             rid        = await save_reminder(user_id, rest, int(fire_dt.timestamp()), repeat)
             repeat_str = {
-                "daily": " (lặp hàng ngày)",
-                "weekly": " (lặp hàng tuần)",
+                "daily":   " (lặp hàng ngày)",
+                "weekly":  " (lặp hàng tuần)",
                 "monthly": " (lặp hàng tháng)",
             }.get(repeat or "", "")
             return (
@@ -997,11 +995,13 @@ async def handle_command(user_id: str, text: str) -> str | None:
             "/remind list\n"
             "/remind 2 cancel\n"
             "/remind 20:00 uống thuốc\n"
+            "/remind 20:00 tối nay họp team\n"
+            "/remind 19:00 ngày 19/3 lịch hẹn\n"
             "/remind 20:00 daily uống thuốc\n"
             "/remind 09:00 weekly họp team"
         )
 
-    # ── MODEL SHORTCUT ──────────────────────────────────────────────────────
+    # /<model_key> [one-shot question]
     if cmd in MODEL_REGISTRY:
         await set_user_model(user_id, cmd)
         cfg = MODEL_REGISTRY[cmd]
@@ -1068,9 +1068,9 @@ async def process_event(event: MessageEvent) -> None:
             transcript  = await call_groq_whisper(audio_bytes)
 
             if "⚠️" not in transcript:
-                # Clean transcript truoc khi xu ly
+                # Clean transcript before processing
                 transcript = await clean_transcript(transcript)
-                logger.info(f'AUDIO cleaned | user={user_id} | text={transcript[:50]!r}')
+                logger.info(f"AUDIO cleaned | user={user_id} | text={transcript[:50]!r}")
 
                 wants_reply = any(
                     transcript.strip().lower().startswith(t.lower())
@@ -1082,12 +1082,12 @@ async def process_event(event: MessageEvent) -> None:
                         if clean_text.lower().startswith(t.lower()):
                             clean_text = clean_text[len(t):].strip()
                             break
-                    # Strip dau phay/cham thua o dau
-                    clean_text = clean_text.lstrip(',.! ')
-                    # Check reminder truoc khi goi LLM
-                    logger.info(f'REMINDER input | clean_text={clean_text[:80]!r}')
+                    clean_text = clean_text.lstrip(",.! ")
+
+                    logger.info(f"REMINDER input | clean_text={clean_text[:80]!r}")
                     reminder_reply = await parse_reminder_nlp(user_id, clean_text)
-                    logger.info(f'REMINDER wants_reply | user={user_id} | result={reminder_reply is not None}')
+                    logger.info(f"REMINDER wants_reply | user={user_id} | result={reminder_reply is not None}")
+
                     if reminder_reply:
                         reply = f"🎤 {clean_text}\n\n{reminder_reply}"
                     else:
@@ -1099,9 +1099,9 @@ async def process_event(event: MessageEvent) -> None:
                         await maybe_summarize(user_id)
                         reply = f"🎤 {clean_text}\n\n{answer}\n\n[{MODEL_REGISTRY[model_key]['display']}]"
                 else:
-                    # Transcribe only — clean + check reminder
+                    # Transcribe-only: still check reminders
                     reminder_reply = await parse_reminder_nlp(user_id, transcript)
-                    logger.info(f'REMINDER transcribe | user={user_id} | result={reminder_reply is not None}')
+                    logger.info(f"REMINDER transcribe | user={user_id} | result={reminder_reply is not None}")
                     if reminder_reply:
                         reply = f"🎤 {transcript}\n\n{reminder_reply}"
                     else:
@@ -1115,7 +1115,7 @@ async def process_event(event: MessageEvent) -> None:
             img_bytes = await line_blob_api.get_message_content(event.message.id)
             img_b64   = base64.b64encode(img_bytes).decode("utf-8")
             answer    = await call_groq_vision(img_b64)
-            # Lưu nội dung ảnh vào history để text model sau đọc được context
+            # Save image content to history for context continuity
             await save_message(user_id, "user", f"[Ảnh] {answer}")
             await save_message(user_id, "assistant", answer)
             await maybe_summarize(user_id)
@@ -1129,22 +1129,20 @@ async def process_event(event: MessageEvent) -> None:
             if cmd_reply is not None:
                 reply = cmd_reply
             else:
-                # Block input quá dài
                 if len(user_text) > MAX_INPUT_CHARS:
                     reply = (
                         f"⚠️ Tin nhắn quá dài ({len(user_text)} ký tự).\n"
                         f"Vui lòng giới hạn dưới {MAX_INPUT_CHARS} ký tự."
                     )
                 else:
-                    # Natural language reminder detection
+                    # Check reminder before routing to LLM
                     reminder_reply = await parse_reminder_nlp(user_id, user_text)
                     if reminder_reply:
                         reply = reminder_reply
                     else:
                         model_key, model_id = await resolve_model(user_id, user_text)
-                        logger.info(f'TEXT | user={user_id} | model={model_key} | text={user_text[:50]!r}')
+                        logger.info(f"TEXT | user={user_id} | model={model_key} | text={user_text[:50]!r}")
 
-                        # Text dài không có câu hỏi → inject tóm tắt instruction
                         if len(user_text) > 500 and "?" not in user_text and "？" not in user_text:
                             await save_message(user_id, "user", user_text)
                             history = [{"role": "user", "content": f"Hãy tóm tắt nội dung sau:\n{user_text}"}]
@@ -1157,21 +1155,18 @@ async def process_event(event: MessageEvent) -> None:
                         await maybe_summarize(user_id)
                         reply  = answer
 
-        # ── REPLY ──────────────────────────────────────────────────────────
+        # ── REPLY — split into multiple messages if needed ──────────────────
         if reply:
-            # Split thanh nhieu tin neu qua 4990 ky tu
             chunks = []
             while len(reply) > 4990:
-                # Cat tai dau cach gan nhat truoc 4990
-                cut = reply.rfind(' ', 0, 4990)
+                cut = reply.rfind(" ", 0, 4990)
                 if cut == -1:
                     cut = 4990
                 chunks.append(reply[:cut])
                 reply = reply[cut:].strip()
             if reply:
                 chunks.append(reply)
-            # LINE toi da 5 messages/reply
-            chunks = chunks[:5]
+            chunks = chunks[:5]  # LINE max 5 messages per reply
             await line_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
