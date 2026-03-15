@@ -502,7 +502,8 @@ Rules:
 - moi thang/every month/monthly = repeat=monthly
 - If no date + no repeat use {date_str}, if time passed use {tomorrow_str}
 - Set is_reminder=true if user mentions scheduled event with time even without explicit remind keyword
-- Examples: toi co hop luc 14h, I have meeting at 2pm, ngay mai co thuyet trinh = is_reminder=true
+- Examples: toi co hop luc 14h, I have meeting at 2pm, ngay mai co thuyet trinh, toi co mot cuoc hen luc 7h = is_reminder=true
+- If transcript seems cut off or incomplete, still try to extract what you can
 - If not a reminder = is_reminder: false
 
 User message: {message}"""
@@ -1041,6 +1042,7 @@ async def process_event(event: MessageEvent) -> None:
                             clean_text = clean_text[len(t):].strip()
                             break
                     # Check reminder truoc khi goi LLM
+                    logger.info(f'REMINDER input | clean_text={clean_text[:80]!r}')
                     reminder_reply = await parse_reminder_nlp(user_id, clean_text)
                     logger.info(f'REMINDER wants_reply | user={user_id} | result={reminder_reply is not None}')
                     if reminder_reply:
