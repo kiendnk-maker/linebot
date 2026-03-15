@@ -213,6 +213,11 @@ async def init_db() -> None:
             " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
         )
         await db.execute(
+            "CREATE TABLE IF NOT EXISTS user_profile "
+            "(user_id TEXT PRIMARY KEY, "
+            " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
+        )
+        await db.execute(
             "CREATE TABLE IF NOT EXISTS reminders "
             "(id        INTEGER PRIMARY KEY AUTOINCREMENT, "
             " user_id   TEXT    NOT NULL, "
@@ -222,6 +227,50 @@ async def init_db() -> None:
             " done      INTEGER DEFAULT 0)"
         )
         await db.commit()
+
+
+async def get_user_profile(user_id: str) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT name, occupation, learning, notes FROM user_profile WHERE user_id = ?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return {}
+    keys = ["name", "occupation", "learning", "notes"]
+    return {k: v for k, v in zip(keys, row) if v}
+
+
+async def save_user_profile(user_id: str, **kwargs) -> None:
+    if not kwargs:
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO user_profile (user_id) VALUES (?) "
+            "ON CONFLICT(user_id) DO NOTHING",
+            (user_id,),
+        )
+        for key, value in kwargs.items():
+            if key in ("name", "occupation", "learning", "notes"):
+                await db.execute(
+                    f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
+                    (value, user_id),
+                )
+        await db.commit()
+
+
+async def build_system_prompt(user_id: str, model_key: str) -> str:
+    base = get_system_prompt(model_key)
+    profile = await get_user_profile(user_id)
+    if not profile:
+        return base
+    lines = []
+    if profile.get("name"):       lines.append("\u7528\u6236\u59d3\u540d\uff1a" + profile["name"])
+    if profile.get("occupation"): lines.append("\u8077\u696d\uff1a" + profile["occupation"])
+    if profile.get("learning"):   lines.append("\u6b63\u5728\u5b78\u7fd2\uff1a" + profile["learning"])
+    if profile.get("notes"):      lines.append("\u5099\u8a3b\uff1a" + profile["notes"])
+    return base + "\n\n\u3010\u7528\u6236\u8cc7\u6599\u3011\n" + "\n".join(lines)
 
 
 async def get_user_profile(user_id: str) -> dict:
@@ -754,6 +803,34 @@ async def handle_command(user_id: str, text: str) -> str | None:
         return f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
 
     # ── REMIND COMMANDS ────────────────────────────────────────────────────
+    if cmd == "profile":
+        profile = await get_user_profile(user_id)
+        if not arg:
+            if not profile:
+                return (
+                    "Chua co thong tin ca nhan.\n"
+                    "Cap nhat:\n"
+                    "/profile name Ten ban\n"
+                    "/profile job Nghe nghiep\n"
+                    "/profile learning Tieng Trung B1\n"
+                    "/profile note Ghi chu them"
+                )
+            lines = ["Thong tin cua ban:\n"]
+            if profile.get("name"):       lines.append("Ten: " + profile["name"])
+            if profile.get("occupation"): lines.append("Nghe: " + profile["occupation"])
+            if profile.get("learning"):   lines.append("Dang hoc: " + profile["learning"])
+            if profile.get("notes"):      lines.append("Ghi chu: " + profile["notes"])
+            return "\n".join(lines)
+        parts2 = arg.split(maxsplit=1)
+        if len(parts2) < 2:
+            return "Dung: /profile name|job|learning|note <noi dung>"
+        field, value = parts2[0].lower(), parts2[1]
+        field_map = {"name": "name", "job": "occupation", "learning": "learning", "note": "notes"}
+        if field not in field_map:
+            return "Field hop le: name, job, learning, note"
+        await save_user_profile(user_id, **{field_map[field]: value})
+        return "Da luu " + field + ": " + value
+
     if cmd == "profile":
         profile = await get_user_profile(user_id)
         if not arg:
