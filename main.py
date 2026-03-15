@@ -1358,8 +1358,36 @@ async def handle_command(user_id: str, text: str) -> str | None:
         return strip_markdown(reply)
 
     if cmd == "ls" and arg.startswith("mail"):
-        access_token = await get_google_access_token(user_id)
-        if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
+            # Xóa cache cũ
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
+                
+                ui_output = "📬 *HỘP THƯ MỚI NHẤT (24H)*
+"
+                ui_output += "━━━━━━━━━━━━━━━
+"
+                
+                for i, m in enumerate(mail_list):
+                    m_id = m["id"]
+                    idx = i + 1
+                    await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, m_id))
+                    
+                    det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From", headers=headers)
+                    h_data = det_resp.json().get("payload", {}).get("headers", [])
+                    subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
+                    frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
+                    sender = re.sub(r'<.*?>', '', frm).strip()[:20]
+                    
+                    ui_output += f"🔘 *[{idx}] {sender}*
+"
+                    ui_output += f"✉️ {subj[:45]}...
+"
+                    ui_output += "────────────────
+"
+                
+                ui_output += "💡 *Gõ số (1, 2...) để xem chi tiết*"
+                await db.commit()
+            return ui_output
         
         days = 1
         if len(arg.split()) > 1 and arg.split()[1].isdigit():
@@ -1962,3 +1990,6 @@ async def process_event(event: MessageEvent) -> None:
 # Clean UI Fix: Mon Mar 16 04:19:18 CST 2026
 # Clean UI Fix: Mon Mar 16 04:24:07 CST 2026
 # Fix DB Connection: Mon Mar 16 04:29:38 CST 2026
+
+# UI Update forced at: 2026-03-16
+# Manual Trigger: Mon Mar 16 04:37:57 CST 2026
