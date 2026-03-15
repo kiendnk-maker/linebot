@@ -1359,6 +1359,59 @@ async def handle_command(user_id: str, text: str) -> str | None:
         except Exception as e:
             return f"⚠️ Lỗi kết nối Workspace: {str(e)}"
 
+
+    if cmd == "ls" and arg.startswith("mail"):
+        parts = arg.split()
+        days = 1
+        if len(parts) > 1 and parts[1].isdigit():
+            days = int(parts[1])
+            
+        connector_id = os.getenv("WORKSPACE_CONNECTOR_ID")
+        if not connector_id:
+            return "⚠️ Chưa cấu hình WORKSPACE_CONNECTOR_ID."
+            
+        prompt = (
+            f"Sử dụng công cụ Gmail để tìm các email tôi nhận được trong {days} ngày qua. "
+            f"Trả về danh sách đánh số thứ tự: 1. [Người gửi] - [Ngày giờ] - [Tiêu đề]. "
+            f"Chỉ liệt kê ngắn gọn, KHÔNG tóm tắt nội dung lúc này."
+        )
+        
+        # Tool giả lập cấu trúc Google Workspace cho LLM hiểu
+        tools = [{"type": "function", "function": {"name": "gmail_search", "description": "Tìm email trong hộp thư inbox"}}]
+        
+        try:
+            resp = await client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                tools=tools,
+                tool_choice="auto"
+            )
+            return strip_markdown(resp.choices[0].message.content or "Đã lấy xong danh sách!")
+        except Exception as e:
+            return f"⚠️ Lỗi lấy danh sách Gmail: {str(e)}"
+
+    if cmd == "mail":
+        connector_id = os.getenv("WORKSPACE_CONNECTOR_ID")
+        if not connector_id:
+            return "⚠️ Chưa cấu hình WORKSPACE_CONNECTOR_ID."
+            
+        # Nạp lịch sử chat để AI biết "số 2" tương ứng với email nào
+        history = await get_history_with_summary(user_id)
+        prompt = f"Dựa vào danh sách email bạn vừa liệt kê ở tin nhắn trước, hãy lấy nội dung chi tiết của email mục số '{arg}' và tóm tắt lại những điểm quan trọng nhất."
+        
+        tools = [{"type": "function", "function": {"name": "gmail_read", "description": "Đọc nội dung chi tiết email"}}]
+        
+        try:
+            resp = await client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=history + [{"role": "user", "content": prompt}],
+                tools=tools,
+                tool_choice="auto"
+            )
+            return strip_markdown(resp.choices[0].message.content or "Đã tóm tắt xong!")
+        except Exception as e:
+            return f"⚠️ Lỗi đọc nội dung Gmail: {str(e)}"
+
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
@@ -1769,8 +1822,13 @@ async def process_event(event: MessageEvent) -> None:
         elif isinstance(event.message, TextMessageContent):
             user_text = event.message.text.strip()
 
+            # UX Trick: Nếu người dùng chỉ gõ số (vd: "2"), tự động biên dịch thành lệnh "/mail 2"
+            if user_text.isdigit() and len(user_text) <= 2:
+                cmd_reply = await handle_command(user_id, f"/mail {user_text}")
+            else:
+                cmd_reply = await handle_command(user_id, user_text)
+                
             # Layer 3a: command handler
-            cmd_reply = await handle_command(user_id, user_text)
             if cmd_reply is not None:
                 reply = cmd_reply
 
