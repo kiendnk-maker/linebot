@@ -1168,6 +1168,47 @@ async def handle_command(user_id: str, text: str) -> str | None:
             return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /dev Viết hàm Python tính dãy Fibonacci"
         return await run_multi_agent_workflow(user_id, arg)
 
+
+    if cmd == "wedding":
+        connector_id = os.getenv("WORKSPACE_CONNECTOR_ID")
+        if not connector_id:
+            return "⚠️ Chưa cấu hình WORKSPACE_CONNECTOR_ID trên Railway."
+        
+        wedding_prompt = (
+            f"Bạn là trợ lý tổ chức đám cưới chuyên nghiệp. "
+            f"Hãy dùng công cụ Google Calendar để kiểm tra lịch trình chuẩn bị đám cưới của tôi và Quỳnh Như vào ngày 29/03 tới. "
+            f"Yêu cầu từ người dùng: {arg if arg else 'Xem lịch sắp tới'}"
+        )
+        
+        # Khởi tạo công cụ Calendar
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "google_calendar_get_events",
+                    "description": "Lấy danh sách sự kiện từ lịch Google",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "timeMin": {"type": "string", "description": "Thời gian bắt đầu (ISO 8601)"}
+                        }
+                    }
+                }
+            }
+        ]
+        
+        # Gọi API Llama 3.3 70B với tool_choice
+        try:
+            resp = await client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": wedding_prompt}],
+                tools=tools,
+                tool_choice="auto"
+            )
+            return strip_markdown(resp.choices[0].message.content or "Đã kiểm tra lịch xong!")
+        except Exception as e:
+            return f"⚠️ Lỗi kết nối Workspace: {str(e)}"
+
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
