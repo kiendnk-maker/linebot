@@ -15,6 +15,9 @@ from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, ImageMessageContent, AudioMessageContent,
 )
 from prompts import get_system_prompt
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # CONFIG
@@ -976,6 +979,7 @@ async def process_event(event: MessageEvent) -> None:
                         reply = reminder_reply
                     else:
                         model_key, model_id = await resolve_model(user_id, user_text)
+                logger.info(f'TEXT | user={user_id} | model={model_key} | text={user_text[:50]!r}')
 
                         # Text dài không có câu hỏi → inject tóm tắt instruction
                         if len(user_text) > 500 and "?" not in user_text and "？" not in user_text:
