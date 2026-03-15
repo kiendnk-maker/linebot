@@ -1368,37 +1368,62 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
         async with httpx.AsyncClient() as http:
             headers = {"Authorization": f"Bearer {access_token}"}
-            params = {"q": "in:inbox newer_than:3d", "maxResults": 50}
+            # Filter: skip promotions, updates, social, spam, forums
+            params = {
+                "q": "in:inbox newer_than:3d -category:promotions -category:updates -category:social -category:forums",
+                "maxResults": 50,
+            }
             resp = await http.get("https://gmail.googleapis.com/gmail/v1/users/me/messages",
                                   headers=headers, params=params)
             mail_list = resp.json().get("messages", [])
 
-            if not mail_list: return "📬 Hộp thư của bạn đang trống."
+            if not mail_list: return "📬 Hộp thư sạch — không có email quan trọng nào."
+
+            # Fetch metadata for all messages, then deduplicate by sender
+            fetched: list[dict] = []
+            for m in mail_list:
+                m_id = m["id"]
+                det_resp = await http.get(
+                    f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From",
+                    headers=headers,
+                )
+                h_data = det_resp.json().get("payload", {}).get("headers", [])
+                subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
+                frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
+                sender_email = re.search(r'<(.+?)>', frm)
+                sender_key = sender_email.group(1).lower() if sender_email else frm.lower().strip()
+                sender_name = re.sub(r'<.*?>', '', frm).strip()[:20]
+                fetched.append({"id": m_id, "subject": subj, "sender_name": sender_name, "sender_key": sender_key})
+
+            # Deduplicate: keep only the latest email per sender
+            seen_senders: set[str] = set()
+            unique_mails: list[dict] = []
+            for mail in fetched:
+                if mail["sender_key"] not in seen_senders:
+                    seen_senders.add(mail["sender_key"])
+                    unique_mails.append(mail)
+
+            if not unique_mails: return "📬 Hộp thư sạch — không có email quan trọng nào."
 
             start_idx = (page - 1) * 5
             end_idx = start_idx + 5
-            display_list = mail_list[start_idx:end_idx]
+            display_list = unique_mails[start_idx:end_idx]
 
             if not display_list: return f"⚠️ Trang {page} không có email nào."
 
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
-                ui_output = f"📬 *HỘP THƯ - TRANG {page}*\n"
+                total_unique = len(unique_mails)
+                total_pages = (total_unique + 4) // 5
+                ui_output = f"📬 *HỘP THƯ - TRANG {page}/{total_pages}* ({total_unique} email)\n"
                 ui_output += "━━━━━━━━━━━━━━━\n"
 
-                for i, m in enumerate(display_list):
-                    m_id = m["id"]
+                for i, mail in enumerate(display_list):
                     idx = i + 1
-                    await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, m_id))
+                    await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, mail["id"]))
 
-                    det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From", headers=headers)
-                    h_data = det_resp.json().get("payload", {}).get("headers", [])
-                    subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
-                    frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
-                    sender = re.sub(r'<.*?>', '', frm).strip()[:20]
-
-                    ui_output += f"🔘 *[{idx}] {sender}*\n"
-                    ui_output += f"✉️ {subj[:45]}...\n"
+                    ui_output += f"🔘 *[{idx}] {mail['sender_name']}*\n"
+                    ui_output += f"✉️ {mail['subject'][:45]}...\n"
                     ui_output += "────────────────\n"
                 await db.commit()
 
@@ -1406,7 +1431,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
         qr_items = []
         if page > 1:
             qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}"}})
-        if len(mail_list) > end_idx:
+        if len(unique_mails) > end_idx:
             qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}"}})
         qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": "/ls mail 1"}})
 
