@@ -41,10 +41,7 @@ HF_API_KEY                = os.environ["HF_API_KEY"]
 DB_PATH                   = os.environ.get("DB_PATH", "chat_history.db")
 CHROMA_PATH               = os.environ.get("CHROMA_PATH", "chroma")
 
-HF_EMBED_URL = (
-    "https://api-inference.huggingface.co/models/"
-    "intfloat/multilingual-e5-small"
-)
+HF_EMBED_URL = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
 
 WHISPER_MODEL   = "whisper-large-v3-turbo"
 MAX_INPUT_CHARS = 8000
