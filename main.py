@@ -1358,16 +1358,33 @@ async def handle_command(user_id: str, text: str) -> str | None:
         return strip_markdown(reply)
 
     if cmd == "ls" and arg.startswith("mail"):
-            # Xóa cache cũ
+            # Xác định trang
+            page = 1
+            if arg.replace("mail", "").strip().isdigit():
+                page = int(arg.replace("mail", "").strip())
+            
+            params = {"q": "in:inbox newer_than:3d", "maxResults": 50}
+            resp = await http.get("https://gmail.googleapis.com/gmail/v1/users/me/messages", 
+                                  headers=headers, params=params)
+            mail_list = resp.json().get("messages", [])
+            
+            if not mail_list: return "📬 Hộp thư của bạn đang trống."
+
+            start_idx = (page - 1) * 5
+            end_idx = start_idx + 5
+            display_list = mail_list[start_idx:end_idx]
+            
+            if not display_list: return f"⚠️ Trang {page} không có email nào."
+
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
                 
-                ui_output = "📬 *HỘP THƯ MỚI NHẤT (24H)*
+                ui_output = f"📬 *HỘP THƯ - TRANG {page}*
 "
                 ui_output += "━━━━━━━━━━━━━━━
 "
                 
-                for i, m in enumerate(mail_list):
+                for i, m in enumerate(display_list):
                     m_id = m["id"]
                     idx = i + 1
                     await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, m_id))
@@ -1384,10 +1401,17 @@ async def handle_command(user_id: str, text: str) -> str | None:
 "
                     ui_output += "────────────────
 "
-                
-                ui_output += "💡 *Gõ số (1, 2...) để xem chi tiết*"
                 await db.commit()
-            return ui_output
+
+            # Tạo Quick Reply Buttons
+            qr_items = []
+            if page > 1:
+                qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}"}})
+            if len(mail_list) > end_idx:
+                qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}"}})
+            qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": "/ls mail 1"}})
+
+            return {"text": ui_output, "quickReply": {"items": qr_items}}
         
         days = 1
         if len(arg.split()) > 1 and arg.split()[1].isdigit():
@@ -1994,3 +2018,4 @@ async def process_event(event: MessageEvent) -> None:
 # UI Update forced at: 2026-03-16
 # Manual Trigger: Mon Mar 16 04:37:57 CST 2026
 # Quick Reply Update: Mon Mar 16 04:41:56 CST 2026
+# Fix Syntax & Finish QuickReply: Mon Mar 16 04:47:06 CST 2026
