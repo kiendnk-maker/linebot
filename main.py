@@ -490,6 +490,7 @@ async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
         await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
+        await db.execute('CREATE TABLE IF NOT EXISTS mail_block (user_id TEXT, keyword TEXT, PRIMARY KEY (user_id, keyword))')
         await db.commit()
 
 async def get_history_with_summary(user_id: str) -> list[dict]:
@@ -1358,6 +1359,59 @@ async def handle_command(user_id: str, text: str) -> str | None:
         reply = await call_groq_text([{"role": "user", "content": prompt}], "llama-3.3-70b-versatile", user_id=user_id)
         return strip_markdown(reply)
 
+    # ── /block & /unblock — Mail keyword filter ────────────────────────────
+    if cmd == "block":
+        if not arg or arg.strip() == "":
+            return "⚠️ Cú pháp:\n/block ls — xem danh sách\n/block Shopee — thêm từ khoá\n/block Shopee_GitHub — thêm nhiều"
+
+        if arg.strip().lower() == "ls":
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute("SELECT keyword FROM mail_block WHERE user_id = ? ORDER BY keyword", (user_id,)) as cur:
+                    rows = await cur.fetchall()
+            if not rows:
+                return "📋 Chưa block từ khoá nào.\n/block Shopee — để thêm"
+            kw_list = "\n".join(f"  ✕ {r[0]}" for r in rows)
+            return f"🚫 Đang block ({len(rows)}):\n{kw_list}\n\n/unblock Shopee — để mở lại"
+
+        # Add keywords (split by _ or space)
+        raw_keywords = re.split(r'[_\s]+', arg.strip())
+        keywords = [k.strip() for k in raw_keywords if k.strip()]
+        if not keywords:
+            return "⚠️ Không có từ khoá hợp lệ."
+
+        added: list[str] = []
+        async with aiosqlite.connect(DB_PATH) as db:
+            for kw in keywords:
+                try:
+                    await db.execute("INSERT INTO mail_block (user_id, keyword) VALUES (?, ?)", (user_id, kw.lower()))
+                    added.append(kw)
+                except Exception:
+                    pass  # duplicate — skip
+            await db.commit()
+
+        if not added:
+            return f"ℹ️ Tất cả từ khoá đã có trong danh sách block."
+        return f"🚫 Đã block: {', '.join(added)}\n/block ls — xem danh sách"
+
+    if cmd == "unblock":
+        if not arg or arg.strip() == "":
+            return "⚠️ Cú pháp: /unblock Shopee hoặc /unblock Shopee_GitHub"
+
+        raw_keywords = re.split(r'[_\s]+', arg.strip())
+        keywords = [k.strip() for k in raw_keywords if k.strip()]
+
+        removed: list[str] = []
+        async with aiosqlite.connect(DB_PATH) as db:
+            for kw in keywords:
+                cur = await db.execute("DELETE FROM mail_block WHERE user_id = ? AND keyword = ?", (user_id, kw.lower()))
+                if cur.rowcount > 0:
+                    removed.append(kw)
+            await db.commit()
+
+        if not removed:
+            return f"ℹ️ Không tìm thấy từ khoá nào để mở block."
+        return f"✅ Đã mở block: {', '.join(removed)}"
+
     if cmd == "ls" and arg.startswith("mail"):
         access_token = await get_google_access_token(user_id)
         if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
@@ -1402,6 +1456,18 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 if mail["sender_key"] not in seen_senders:
                     seen_senders.add(mail["sender_key"])
                     unique_mails.append(mail)
+
+            # Apply user's block list
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute("SELECT keyword FROM mail_block WHERE user_id = ?", (user_id,)) as cur:
+                    block_rows = await cur.fetchall()
+            blocked_keywords = [r[0] for r in block_rows]
+
+            if blocked_keywords:
+                def _is_blocked(mail: dict) -> bool:
+                    haystack = f"{mail['sender_name']} {mail['sender_key']} {mail['subject']}".lower()
+                    return any(kw in haystack for kw in blocked_keywords)
+                unique_mails = [m for m in unique_mails if not _is_blocked(m)]
 
             if not unique_mails: return "📬 Hộp thư sạch — không có email quan trọng nào."
 
