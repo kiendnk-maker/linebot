@@ -208,9 +208,17 @@ async def init_db() -> None:
             "(user_id TEXT PRIMARY KEY, content TEXT, updated_at INTEGER)"
         )
         await db.execute(
+            "CREATE TABLE IF NOT EXISTS user_settings2 "
+            "(user_id TEXT PRIMARY KEY, max_tokens INTEGER NOT NULL DEFAULT 800)"
+        )
+        await db.execute(
             "CREATE TABLE IF NOT EXISTS user_profile "
             "(user_id TEXT PRIMARY KEY, "
             " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
+        )
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS user_settings2 "
+            "(user_id TEXT PRIMARY KEY, max_tokens INTEGER NOT NULL DEFAULT 800)"
         )
         await db.execute(
             "CREATE TABLE IF NOT EXISTS user_profile "
@@ -225,6 +233,26 @@ async def init_db() -> None:
             " fire_at   INTEGER NOT NULL, "
             " repeat    TEXT    DEFAULT NULL, "
             " done      INTEGER DEFAULT 0)"
+        )
+        await db.commit()
+
+
+async def get_user_max_tokens(user_id: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT max_tokens FROM user_settings2 WHERE user_id = ?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else 800
+
+
+async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO user_settings2 (user_id, max_tokens) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET max_tokens = excluded.max_tokens",
+            (user_id, max_tokens),
         )
         await db.commit()
 
@@ -260,6 +288,26 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
         await db.commit()
 
 
+
+
+async def get_user_max_tokens(user_id: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT max_tokens FROM user_settings2 WHERE user_id = ?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else 800
+
+
+async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO user_settings2 (user_id, max_tokens) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET max_tokens = excluded.max_tokens",
+            (user_id, max_tokens),
+        )
+        await db.commit()
 
 
 async def get_user_profile(user_id: str) -> dict:
@@ -834,6 +882,19 @@ async def handle_command(user_id: str, text: str) -> str | None:
         return f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
 
     # ── REMIND COMMANDS ────────────────────────────────────────────────────
+    if cmd in ("long", "short", "tokens"):
+        if cmd == "long":
+            val = int(arg) if arg.isdigit() else 3000
+            val = min(val, 4000)  # cap 4000
+            await set_user_max_tokens(user_id, val)
+            return f"Che do tra loi dai: toi da {val} tokens (~{val*4} ky tu)"
+        elif cmd == "short":
+            await set_user_max_tokens(user_id, 800)
+            return "Che do tra loi ngan: 800 tokens (mac dinh)"
+        else:  # /tokens
+            val = await get_user_max_tokens(user_id)
+            return f"Max tokens hien tai: {val} (~{val*4} ky tu)"
+
     if cmd == "profile":
         profile = await get_user_profile(user_id)
         if not arg:
@@ -861,6 +922,19 @@ async def handle_command(user_id: str, text: str) -> str | None:
             return "Field hop le: name, job, learning, note"
         await save_user_profile(user_id, **{field_map[field]: value})
         return "Da luu " + field + ": " + value
+
+    if cmd in ("long", "short", "tokens"):
+        if cmd == "long":
+            val = int(arg) if arg.isdigit() else 3000
+            val = min(val, 4000)  # cap 4000
+            await set_user_max_tokens(user_id, val)
+            return f"Che do tra loi dai: toi da {val} tokens (~{val*4} ky tu)"
+        elif cmd == "short":
+            await set_user_max_tokens(user_id, 800)
+            return "Che do tra loi ngan: 800 tokens (mac dinh)"
+        else:  # /tokens
+            val = await get_user_max_tokens(user_id)
+            return f"Max tokens hien tai: {val} (~{val*4} ky tu)"
 
     if cmd == "profile":
         profile = await get_user_profile(user_id)
