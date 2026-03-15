@@ -1419,6 +1419,48 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
+                ui_output = f"📬 *HỘP THƯ - TRANG {page}*
+"
+                ui_output += "━━━━━━━━━━━━━━━
+"
+                
+                for i, m in enumerate(display_list):
+                    m_id = m["id"]
+                    idx = i + 1
+                    await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, m_id))
+                    
+                    det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From", headers=headers)
+                    h_data = det_resp.json().get("payload", {}).get("headers", [])
+                    subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
+                    frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
+                    sender = re.sub(r'<.*?>', '', frm).strip()[:20]
+                    
+                    ui_output += f"🔘 *[{idx}] {sender}*
+"
+                    ui_output += f"✉️ {subj[:45]}...
+"
+                    ui_output += "────────────────
+"
+                await db.commit()
+
+            # Tạo Quick Reply Buttons để điều hướng "thả ga"
+            qr_items = []
+            if page > 1:
+                qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}"}})
+            if len(mail_list) > end_idx:
+                qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}"}})
+            qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": "/ls mail 1"}})
+
+            return {"text": ui_output, "quickReply": {"items": qr_items}}
+
+            start_idx = (page - 1) * 5
+            end_idx = start_idx + 5
+            display_list = mail_list[start_idx:end_idx]
+            
+            if not display_list: return f"⚠️ Trang {page} không có email nào."
+
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
                 
                 ui_output = f"📬 *HỘP THƯ - TRANG {page}*
 "
@@ -2061,3 +2103,4 @@ async def process_event(event: MessageEvent) -> None:
 # Quick Reply Update: Mon Mar 16 04:41:56 CST 2026
 # Fix Syntax & Finish QuickReply: Mon Mar 16 04:47:06 CST 2026
 # Fix Syntax & Enable QR: Mon Mar 16 04:52:01 CST 2026
+# Fix Syntax & Enable QR: Mon Mar 16 05:15:55 CST 2026
