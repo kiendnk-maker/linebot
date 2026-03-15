@@ -220,6 +220,11 @@ async def init_db() -> None:
             "(user_id TEXT PRIMARY KEY, content TEXT, updated_at INTEGER)"
         )
         await db.execute(
+            "CREATE TABLE IF NOT EXISTS user_profile "
+            "(user_id TEXT PRIMARY KEY, "
+            " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
+        )
+        await db.execute(
             "CREATE TABLE IF NOT EXISTS reminders "
             "(id        INTEGER PRIMARY KEY AUTOINCREMENT, "
             " user_id   TEXT    NOT NULL, "
@@ -229,6 +234,67 @@ async def init_db() -> None:
             " done      INTEGER DEFAULT 0)"
         )
         await db.commit()
+
+
+async def get_user_profile(user_id: str) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT name, occupation, learning, notes FROM user_profile WHERE user_id = ?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return {}
+    keys = ["name", "occupation", "learning", "notes"]
+    return {k: v for k, v in zip(keys, row) if v}
+
+
+async def save_user_profile(user_id: str, **kwargs) -> None:
+    """Update user profile fields. Only updates provided fields."""
+    if not kwargs:
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Upsert — insert or update existing
+        await db.execute(
+            "INSERT INTO user_profile (user_id) VALUES (?) "
+            "ON CONFLICT(user_id) DO NOTHING",
+            (user_id,),
+        )
+        for key, value in kwargs.items():
+            if key in ("name", "occupation", "learning", "notes"):
+                await db.execute(
+                    f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
+                    (value, user_id),
+                )
+        await db.commit()
+
+
+async def build_system_prompt(user_id: str, model_key: str) -> str:
+    """
+    Inject user profile vào system prompt nếu có.
+    Thay thế get_system_prompt() trực tiếp.
+    """
+    base = get_system_prompt(model_key)
+    profile = await get_user_profile(user_id)
+    if not profile:
+        return base
+
+    profile_lines = []
+    if profile.get("name"):
+        profile_lines.append(f"用戶姓名：{profile['name']}")
+    if profile.get("occupation"):
+        profile_lines.append(f"職業：{profile['occupation']}")
+    if profile.get("learning"):
+        profile_lines.append(f"正在學習：{profile['learning']}")
+    if profile.get("notes"):
+        profile_lines.append(f"備註：{profile['notes']}")
+
+    profile_str = "
+".join(profile_lines)
+    return base + f"
+
+【用戶資料】
+{profile_str}"
 
 
 async def save_message(user_id: str, role: str, content: str) -> None:
@@ -575,13 +641,23 @@ async def call_groq_text(
     history: list[dict],
     model_id: str,
     model_key: str = DEFAULT_MODEL_KEY,
+    user_id: str | None = None,
 ) -> str:
-    system = get_system_prompt(model_key)
+    system = (
+        await build_system_prompt(user_id, model_key)
+        if user_id
+        else get_system_prompt(model_key)
+    )
 
     # Compound models require last message role to be "user"
     clean_history = list(history)
     while clean_history and clean_history[-1]["role"] == "assistant":
         clean_history.pop()
+
+    # reasoning_effort=low cho gpt120b — tiết kiệm token, đủ cho chat
+    extra: dict = {}
+    if model_id == MODEL_REGISTRY["gpt120b"]["model_id"]:
+        extra["reasoning_effort"] = "low"
 
     async with httpx.AsyncClient() as http:
         client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
@@ -591,6 +667,7 @@ async def call_groq_text(
                 messages=[{"role": "system", "content": system}] + clean_history,
                 temperature=0.6,
                 max_tokens=800,
+                **extra,
             )
             return strip_markdown(resp.choices[0].message.content or "")
         except Exception as e:
@@ -754,6 +831,44 @@ async def handle_command(user_id: str, text: str) -> str | None:
         return f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
 
     # ── REMIND COMMANDS ────────────────────────────────────────────────────
+    if cmd == "profile":
+        profile = await get_user_profile(user_id)
+        if not arg:
+            # Xem profile
+            if not profile:
+                return (
+                    "📋 Chưa có thông tin cá nhân.
+"
+                    "Cập nhật:
+"
+                    "/profile name Tên bạn
+"
+                    "/profile job Nghề nghiệp
+"
+                    "/profile learning Tiếng Trung B1
+"
+                    "/profile note Ghi chú thêm"
+                )
+            lines = ["📋 Thông tin của bạn:
+"]
+            if profile.get("name"):       lines.append(f"👤 Tên: {profile['name']}")
+            if profile.get("occupation"): lines.append(f"💼 Nghề: {profile['occupation']}")
+            if profile.get("learning"):   lines.append(f"📚 Đang học: {profile['learning']}")
+            if profile.get("notes"):      lines.append(f"📝 Ghi chú: {profile['notes']}")
+            return "
+".join(lines)
+
+        # Cập nhật field
+        parts2 = arg.split(maxsplit=1)
+        if len(parts2) < 2:
+            return "❓ Dùng: /profile name|job|learning|note <nội dung>"
+        field, value = parts2[0].lower(), parts2[1]
+        field_map = {"name": "name", "job": "occupation", "learning": "learning", "note": "notes"}
+        if field not in field_map:
+            return "❓ Field hợp lệ: name, job, learning, note"
+        await save_user_profile(user_id, **{field_map[field]: value})
+        return f"✅ Đã lưu {field}: {value}"
+
     if cmd == "remind":
         # /remind list
         if arg == "list":
@@ -913,7 +1028,7 @@ async def process_event(event: MessageEvent) -> None:
                         await save_message(user_id, "user", clean_text)
                         model_key, model_id = await resolve_model(user_id, clean_text)
                         history = await get_history_with_summary(user_id)
-                        answer  = await call_groq_text(history, model_id, model_key=model_key)
+                        answer  = await call_groq_text(history, model_id, model_key=model_key, user_id=user_id)
                         await save_message(user_id, "assistant", answer)
                         await maybe_summarize(user_id)
                         reply = f"🎤 {clean_text}\n\n{answer}"
@@ -969,7 +1084,7 @@ async def process_event(event: MessageEvent) -> None:
                             await save_message(user_id, "user", user_text)
                             history = await get_history_with_summary(user_id)
 
-                        answer = await call_groq_text(history, model_id, model_key=model_key)
+                        answer = await call_groq_text(history, model_id, model_key=model_key, user_id=user_id)
                         await save_message(user_id, "assistant", answer)
                         await maybe_summarize(user_id)
                         reply  = answer
