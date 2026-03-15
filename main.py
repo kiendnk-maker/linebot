@@ -901,8 +901,14 @@ async def process_event(event: MessageEvent) -> None:
                         await maybe_summarize(user_id)
                         reply = f"🎤 {clean_text}\n\n{answer}"
                 else:
-                    await save_message(user_id, "user", f"[Voice]: {transcript}")
-                    reply = f"🎤 {transcript}"
+                    # Không có trigger → vẫn clean + check reminder
+                    transcript = await clean_transcript(transcript)
+                    reminder_reply = await parse_reminder_nlp(user_id, transcript)
+                    if reminder_reply:
+                        reply = f"🎤 {transcript}\n\n{reminder_reply}"
+                    else:
+                        await save_message(user_id, "user", f"[Voice]: {transcript}")
+                        reply = f"🎤 {transcript}"
             else:
                 reply = transcript
 
