@@ -1187,12 +1187,11 @@ async def run_pro_workflow(user_id: str, task: str) -> str:
     return f"🧠 [CHẾ ĐỘ PRO - DEEP THINKING]\n──────────────\n{final_answer}"
 
 import json
-import datetime
 
 # 1. Định nghĩa các công cụ thực tế (Python Functions)
 def get_current_time() -> str:
     """Trả về thời gian hiện tại của hệ thống."""
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def calculate_math(expression: str) -> str:
     """Tính toán biểu thức toán học an toàn."""
