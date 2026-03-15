@@ -1416,15 +1416,20 @@ async def handle_command(user_id: str, text: str) -> str | None:
         access_token = await get_google_access_token(user_id)
         if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
 
+        # Parse: /ls mail [page] [Nd]  e.g. /ls mail 2 7d
         page = 1
-        if arg.replace("mail", "").strip().isdigit():
-            page = int(arg.replace("mail", "").strip())
+        days = 3
+        tokens = arg.replace("mail", "").strip().split()
+        for t in tokens:
+            if re.fullmatch(r'\d+d', t):
+                days = int(t[:-1])
+            elif t.isdigit():
+                page = int(t)
 
         async with httpx.AsyncClient() as http:
             headers = {"Authorization": f"Bearer {access_token}"}
-            # Filter: skip promotions, updates, social, spam, forums
             params = {
-                "q": "in:inbox newer_than:3d -category:promotions -category:updates -category:social -category:forums",
+                "q": f"in:inbox newer_than:{days}d -category:promotions -category:updates -category:social -category:forums",
                 "maxResults": 50,
             }
             resp = await http.get("https://gmail.googleapis.com/gmail/v1/users/me/messages",
@@ -1481,7 +1486,8 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
                 total_unique = len(unique_mails)
                 total_pages = (total_unique + 4) // 5
-                ui_output = f"📬 HỘP THƯ {page}/{total_pages} ({total_unique})\n"
+                day_label = f" · {days}d" if days != 3 else ""
+                ui_output = f"📬 HỘP THƯ {page}/{total_pages} ({total_unique}){day_label}\n"
 
                 for i, mail in enumerate(display_list):
                     idx = i + 1
@@ -1490,13 +1496,14 @@ async def handle_command(user_id: str, text: str) -> str | None:
                     ui_output += f"{idx}· {mail['sender_name']} — {subj_short}\n"
                 await db.commit()
 
-        # Tạo Quick Reply Buttons
+        # Tạo Quick Reply Buttons (giữ days param)
+        day_suffix = f" {days}d" if days != 3 else ""
         qr_items = []
         if page > 1:
-            qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}"}})
+            qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}{day_suffix}"}})
         if len(unique_mails) > end_idx:
-            qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}"}})
-        qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": "/ls mail 1"}})
+            qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}{day_suffix}"}})
+        qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": f"/ls mail 1{day_suffix}"}})
 
         return {"text": ui_output, "quickReply": {"items": qr_items}}
 
