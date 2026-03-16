@@ -1412,56 +1412,47 @@ async def handle_command(user_id: str, text: str) -> str | None:
             return f"ℹ️ Không tìm thấy từ khoá nào để mở block."
         return f"✅ Đã mở block: {', '.join(removed)}"
 
-    
-        if cmd == "cal":
-            access_token = await get_google_access_token(user_id)
-            if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
+    if cmd == "cal":
+        access_token = await get_google_access_token(user_id)
+        if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
+
+        async with httpx.AsyncClient() as http:
             headers = {"Authorization": f"Bearer {access_token}"}
-            
-            # Nếu gõ /cal hoặc /cal ls -> Hiển thị lịch
+
+            # /cal hoặc /cal ls -> Hiển thị lịch
             if not arg or arg == "ls":
-                import datetime
-                now = datetime.datetime.utcnow().isoformat() + 'Z'
+                now = datetime.now(TZ).isoformat()
                 params = {"timeMin": now, "maxResults": 5, "singleEvents": "true", "orderBy": "startTime"}
                 resp = await http.get("https://www.googleapis.com/calendar/v3/calendars/primary/events", headers=headers, params=params)
                 events = resp.json().get("items", [])
-                
-                if not events: return "📅 Hiện tại bạn không có lịch trình nào sắp tới."
-                
-                out = "📅 *LỊCH TRÌNH SẮP TỚI*\n━━━━━━━━━━━━━━━\n"
-━━━━━━━━━━━━━━━
-"
+
+                if not events: return "📅 Không có lịch trình sắp tới."
+
+                out = "📅 LỊCH TRÌNH SẮP TỚI\n"
                 for e in events:
-                    start = e['start'].get('dateTime', e['start'].get('date', ''))
-                    # Định dạng lại giờ cho đẹp: YYYY-MM-DD HH:MM
+                    start = e["start"].get("dateTime", e["start"].get("date", ""))
                     start = start.replace("T", " ")[:16]
-                    summary = e.get('summary', '(Không tiêu đề)')
-                    out += f"🔹 *{start}*
-📝 {summary}
-────────────────
-"
-                
+                    summary = e.get("summary", "(Không tiêu đề)")
+                    out += f"🔹 {start} — {summary}\n"
+
                 qr_items = [
                     {"type": "action", "action": {"type": "message", "label": "➕ Thêm sự kiện", "text": "/cal add "}}
                 ]
                 return {"text": out, "quickReply": {"items": qr_items}}
-                
-            # Nếu gõ /cal add [nội dung] -> Thêm lịch nhanh
+
+            # /cal add [nội dung] -> Thêm lịch nhanh
             elif arg.startswith("add "):
                 event_text = arg[4:].strip()
-                # Dùng QuickAdd Endpoint (Hỗ trợ AI phân tích ngôn ngữ tự nhiên)
                 resp = await http.post("https://www.googleapis.com/calendar/v3/calendars/primary/events/quickAdd", headers=headers, params={"text": event_text})
-                
+
                 if resp.status_code == 200:
                     e = resp.json()
-                    start = e['start'].get('dateTime', e['start'].get('date', '')).replace("T", " ")[:16]
-                    return f"✅ *Đã thêm lịch thành công!*
-📝 Sự kiện: {e.get('summary')}
-⏰ Thời gian: {start}"
+                    start = e["start"].get("dateTime", e["start"].get("date", "")).replace("T", " ")[:16]
+                    return f"✅ Đã thêm lịch!\n📝 {e.get('summary')}\n⏰ {start}"
                 else:
                     return f"❌ Lỗi tạo lịch: {resp.text}"
 
-        if cmd == "ls" and arg.startswith("mail"):
+    if cmd == "ls" and arg.startswith("mail"):
         access_token = await get_google_access_token(user_id)
         if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
 
@@ -2167,4 +2158,3 @@ async def process_event(event: MessageEvent) -> None:
 # Update Limit to 200: Mon Mar 16 08:50:00 CST 2026
 # Add Google Calendar Module: Mon Mar 16 13:05:59 CST 2026
 # Fix OAuth Scope %20 - Mon Mar 16 13:09:16 CST 2026
-# Fix Syntax Calendar line 1431 - Mon Mar 16 13:11:04 CST 2026
