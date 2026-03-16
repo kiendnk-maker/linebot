@@ -1333,7 +1333,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
     if cmd == "login":
         if not GOOGLE_CLIENT_ID: return "⚠️ Thiếu GOOGLE_CLIENT_ID trên Railway."
         redirect_uri = f"{RAILWAY_URL}/google/callback"
-        scope = "https://www.googleapis.com/auth/gmail.readonly%20https://www.googleapis.com/auth/calendar.readonly"
+        scope = "https://www.googleapis.com/auth/gmail.readonly%20https://www.googleapis.com/auth/calendar.events"
         url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={GOOGLE_CLIENT_ID}&redirect_uri={redirect_uri}&response_type=code&scope={scope}&access_type=offline&prompt=consent&state={user_id}&openExternalBrowser=1"
         return f"🔐 Bấm vào link sau để cấp quyền cho Bot đọc Mail & Lịch của bạn (Chỉ cần làm 1 lần duy nhất):\n\n{url}"
 
