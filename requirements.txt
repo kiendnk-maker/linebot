@@ -8,3 +8,4 @@ tzdata
 chromadb
 pdfplumber
 google-genai
+python-docx
