@@ -1435,10 +1435,8 @@ async def handle_command(user_id: str, text: str) -> str | None:
                     summary = e.get("summary", "(Không tiêu đề)")
                     out += f"🔹 {start} — {summary}\n"
 
-                qr_items = [
-                    {"type": "action", "action": {"type": "message", "label": "➕ Thêm sự kiện", "text": "/cal add "}}
-                ]
-                return {"text": out, "quickReply": {"items": qr_items}}
+                out += "\n➕ Thêm: /cal add Họp nhóm 3pm thứ 6"
+                return out
 
             # /cal add [nội dung] -> Thêm lịch nhanh
             elif arg.startswith("add "):
