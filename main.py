@@ -1428,7 +1428,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 
                 if not events: return "📅 Hiện tại bạn không có lịch trình nào sắp tới."
                 
-                out = "📅 *LỊCH TRÌNH SẮP TỚI*
+                out = "📅 *LỊCH TRÌNH SẮP TỚI*\n━━━━━━━━━━━━━━━\n"
 ━━━━━━━━━━━━━━━
 "
                 for e in events:
@@ -2167,3 +2167,4 @@ async def process_event(event: MessageEvent) -> None:
 # Update Limit to 200: Mon Mar 16 08:50:00 CST 2026
 # Add Google Calendar Module: Mon Mar 16 13:05:59 CST 2026
 # Fix OAuth Scope %20 - Mon Mar 16 13:09:16 CST 2026
+# Fix Syntax Calendar line 1431 - Mon Mar 16 13:11:04 CST 2026
