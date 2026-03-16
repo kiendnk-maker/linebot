@@ -1002,7 +1002,18 @@ async def call_groq_text(
             f"[Nguồn: {c['filename']} chunk {c['chunk_index']}]\n{c['content']}"
             for c in rag_chunks
         )
-        system = system + f"\n\n【參考資料】\n{rag_context}"
+        system = system + (
+            "\n\n"
+            "═══ QUAN TRỌNG: TÀI LIỆU THAM KHẢO ═══\n"
+            "Dưới đây là nội dung từ tài liệu của người dùng. "
+            "BẮT BUỘC tuân thủ các quy tắc sau:\n"
+            "1. Ưu tiên trả lời DỰA TRÊN nội dung tài liệu bên dưới.\n"
+            "2. Nếu câu trả lời CÓ trong tài liệu → trích dẫn và ghi rõ nguồn [Nguồn: tên_file].\n"
+            "3. Nếu câu trả lời KHÔNG CÓ trong tài liệu → nói rõ 'Tài liệu không đề cập' rồi mới bổ sung từ kiến thức chung.\n"
+            "4. KHÔNG BAO GIỜ bịa thông tin rồi gán cho tài liệu.\n"
+            "═══════════════════════════════════════\n\n"
+            f"{rag_context}"
+        )
 
     # Compound models require last message role = "user" (SPEC §16.1)
     clean_history = list(history)
