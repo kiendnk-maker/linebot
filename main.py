@@ -1430,7 +1430,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
             headers = {"Authorization": f"Bearer {access_token}"}
             params = {
                 "q": f"in:inbox newer_than:{days}d -category:promotions -category:updates -category:social -category:forums",
-                "maxResults": 50,
+                "maxResults": 200,
             }
             resp = await http.get("https://gmail.googleapis.com/gmail/v1/users/me/messages",
                                   headers=headers, params=params)
@@ -2115,3 +2115,4 @@ async def process_event(event: MessageEvent) -> None:
 # Fix Syntax & Enable QR: Mon Mar 16 04:52:01 CST 2026
 # Fix Syntax & Enable QR: Mon Mar 16 05:15:55 CST 2026
 # Syntax fix for line 1380 - Mon Mar 16 05:21:46 CST 2026
+# Update Limit to 200: Mon Mar 16 08:50:00 CST 2026
