@@ -1550,8 +1550,8 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
             if not unique_mails: return "📬 Hộp thư sạch — không có email quan trọng nào."
 
-            start_idx = (page - 1) * 5
-            end_idx = start_idx + 5
+            start_idx = (page - 1) * 20
+            end_idx = start_idx + 20
             display_list = unique_mails[start_idx:end_idx]
 
             if not display_list: return f"⚠️ Trang {page} không có email nào."
@@ -1559,7 +1559,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM mail_cache WHERE user_id = ?", (user_id,))
                 total_unique = len(unique_mails)
-                total_pages = (total_unique + 4) // 5
+                total_pages = (total_unique + 19) // 20
                 day_label = f" · {days}d" if days != 3 else ""
                 ui_output = f"📬 HỘP THƯ {page}/{total_pages} ({total_unique}){day_label}\n"
 
