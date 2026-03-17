@@ -1585,45 +1585,54 @@ async def handle_command(user_id: str, text: str) -> str | None:
         access_token = await get_google_access_token(user_id)
         if not access_token: return "⚠️ Bạn chưa đăng nhập. Hãy gõ lệnh /login"
         
-        # Tra cứu ID từ cache
+        if not arg or not arg.isdigit():
+            return "⚠️ Vui lòng nhập số thứ tự email. Ví dụ: /mail 1"
+
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.execute("SELECT mail_id FROM mail_cache WHERE user_id = ? AND idx = ?", (user_id, int(arg))) as cur:
                 row = await cur.fetchone()
         
         if not row:
-            return f"⚠️ Không tìm thấy dữ liệu cho mục số {arg}. Hãy gõ /ls mail để cập nhật danh sách."
+            return f"⚠️ Không tìm thấy email số {arg} trong trang hiện hành. Hãy gõ /ls mail để tải lại."
         m_id = row[0]
 
-        
         async with httpx.AsyncClient() as http:
             headers = {"Authorization": f"Bearer {access_token}"}
             det_resp = await http.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=full", headers=headers)
             payload = det_resp.json().get("payload", {})
             
             def get_text(p):
-                if p.get("mimeType") == "text/plain":
+                mime = p.get("mimeType", "")
+                if mime == "text/plain":
                     return p.get("body", {}).get("data", "")
                 for sub in p.get("parts", []):
                     res = get_text(sub)
                     if res: return res
+                if mime == "text/html":
+                    return p.get("body", {}).get("data", "")
                 return ""
                 
             body_data = get_text(payload)
             if body_data:
-                # Xử lý Base64 URL-safe của Google
                 body_data = body_data.replace("-", "+").replace("_", "/")
                 body_data += "=" * ((4 - len(body_data) % 4) % 4)
                 import base64
+                import re
                 try:
-                    content = base64.b64decode(body_data).decode('utf-8')
+                    content_str = base64.b64decode(body_data).decode('utf-8')
+                    content_str = re.sub(r'<style.*?>.*?</style>', '', content_str, flags=re.DOTALL|re.IGNORECASE)
+                    content_str = re.sub(r'<script.*?>.*?</script>', '', content_str, flags=re.DOTALL|re.IGNORECASE)
+                    content_str = re.sub(r'<[^>]+>', ' ', content_str)
+                    content_str = re.sub(r'\s+', ' ', content_str).strip()
                 except Exception:
-                    content = det_resp.json().get("snippet", "Lỗi đọc nội dung.")
+                    content_str = det_resp.json().get("snippet", "Lỗi giải mã nội dung.")
             else:
-                content = det_resp.json().get("snippet", "Chỉ đọc được ảnh hoặc định dạng ẩn.")
+                content_str = det_resp.json().get("snippet", "Chỉ đọc được ảnh hoặc định dạng ẩn.")
                 
-        prompt = f"Dưới đây là nội dung email thực tế tôi vừa nhận. Hãy tóm tắt lại gọn gàng, liệt kê các ý chính:\n\n{content[:2000]}"
+        prompt = f"Dưới đây là nội dung email thực tế tôi vừa nhận. Hãy tóm tắt lại gọn gàng, liệt kê các ý chính:\n\n{content_str[:3000]}"
         reply = await call_groq_text([{"role": "user", "content": prompt}], "llama-3.3-70b-versatile", user_id=user_id)
         return strip_markdown(reply)
+
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
