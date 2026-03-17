@@ -1698,6 +1698,18 @@ async def handle_command(user_id: str, text: str) -> str | None:
         reply = await call_groq_text([{"role": "user", "content": prompt}], "llama-3.3-70b-versatile", user_id=user_id)
         return strip_markdown(reply)
 
+    if cmd == "vi":
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("INSERT INTO user_settings (user_id, language) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET language=?", (user_id, "vi", "vi"))
+            await db.commit()
+        return "🇻🇳 Đã chuyển đổi ngôn ngữ sang Tiếng Việt. Từ giờ tôi sẽ trả lời bạn 100% bằng Tiếng Việt."
+        
+    if cmd == "tw":
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("INSERT INTO user_settings (user_id, language) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET language=?", (user_id, "tw", "tw"))
+            await db.commit()
+        return "🇹🇼 已將語言切換為繁體中文。從現在起，我將只使用繁體中文回答。"
+
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
