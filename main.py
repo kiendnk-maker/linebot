@@ -1020,6 +1020,20 @@ async def call_groq_text(
     while clean_history and clean_history[-1]["role"] == "assistant":
         clean_history.pop()
 
+    # --- HOT-SWAP LANGUAGE FORCER ---
+    if user_id and clean_history and clean_history[-1]["role"] == "user":
+        try:
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute("SELECT language FROM user_settings WHERE user_id = ?", (user_id,)) as cur:
+                    row = await cur.fetchone()
+                    lang = row[0] if row else "vi"
+            
+            rule = "CRITICAL RULE: You MUST answer strictly in Vietnamese." if lang == "vi" else "CRITICAL RULE: You MUST answer strictly in Traditional Chinese (Taiwan)."
+            clean_history[-1]["content"] = f"{clean_history[-1]['content']}\n\n[{rule}]"
+        except Exception:
+            pass
+    # --------------------------------
+
     # reasoning_effort=low for gpt120b (SPEC §11)
     extra: dict = {}
     if model_id == MODEL_REGISTRY["gpt120b"]["model_id"]:
@@ -1766,7 +1780,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("DELETE FROM user_profile WHERE user_id = ?", (user_id,))
                 await db.commit()
-        return "🗑 Đã xoá thông tin cá nhân."
+            return "🗑 Đã xoá thông tin cá nhân."
 
         profile = await get_user_profile(user_id)
         if not arg:
