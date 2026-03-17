@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "/data/data/com.termux/files/home/linebot/test_bot.py", line 9, in <module>
-    from main import (
-    ...<9 lines>...
-    )
-  File "/data/data/com.termux/files/home/linebot/main.py", line 6, in <module>
-    from groq import AsyncGroq
-ModuleNotFoundError: No module named 'groq'
