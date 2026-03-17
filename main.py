@@ -1976,6 +1976,12 @@ def _split_reply(reply: str) -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            await db.execute("ALTER TABLE user_settings ADD COLUMN language TEXT DEFAULT 'vi'")
+            await db.commit()
+        except Exception:
+            pass
     asyncio.create_task(reminder_loop())
     yield
 
