@@ -1561,25 +1561,92 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 total_unique = len(unique_mails)
                 total_pages = (total_unique + 19) // 20
                 day_label = f" · {days}d" if days != 3 else ""
-                ui_output = f"📬 HỘP THƯ {page}/{total_pages} ({total_unique}){day_label}\n"
-
-                for i, mail in enumerate(display_list):
-                    idx = i + 1
-                    await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, mail["id"]))
-                    subj_short = mail["subject"][:30]
-                    ui_output += f"{idx}· {mail['sender_name']} — {subj_short}\n"
+                
+                bubbles = []
+                for chunk_idx in range(0, len(display_list), 5):
+                    chunk = display_list[chunk_idx:chunk_idx+5]
+                    box_contents = []
+                    for i, mail in enumerate(chunk):
+                        idx = start_idx + chunk_idx + i + 1
+                        await db.execute("INSERT INTO mail_cache (user_id, idx, mail_id) VALUES (?, ?, ?)", (user_id, idx, mail["id"]))
+                        
+                        item = {
+                            "type": "box",
+                            "layout": "vertical",
+                            "margin": "md",
+                            "spacing": "sm",
+                            "action": {
+                                "type": "message",
+                                "label": "Read",
+                                "text": f"/mail {idx}"
+                            },
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": f"{idx}. {mail['sender_name'][:25]}",
+                                    "weight": "bold",
+                                    "size": "sm",
+                                    "color": "#1DB446",
+                                    "wrap": True
+                                },
+                                {
+                                    "type": "text",
+                                    "text": mail['subject'],
+                                    "size": "xs",
+                                    "color": "#888888",
+                                    "wrap": True,
+                                    "maxLines": 2
+                                }
+                            ]
+                        }
+                        box_contents.append(item)
+                        if i < len(chunk) - 1:
+                            box_contents.append({"type": "separator", "margin": "md", "color": "#eeeeee"})
+                    
+                    bubble = {
+                        "type": "bubble",
+                        "size": "mega",
+                        "header": {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": f"HỘP THƯ ({page}/{total_pages}){day_label}",
+                                    "weight": "bold",
+                                    "size": "md",
+                                    "color": "#ffffff"
+                                }
+                            ],
+                            "backgroundColor": "#2c3e50"
+                        },
+                        "body": {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": box_contents
+                        }
+                    }
+                    bubbles.append(bubble)
                 await db.commit()
 
-        # Tạo Quick Reply Buttons (giữ days param)
         day_suffix = f" {days}d" if days != 3 else ""
         qr_items = []
         if page > 1:
             qr_items.append({"type": "action", "action": {"type": "message", "label": "⬅️ Trước", "text": f"/ls mail {page-1}{day_suffix}"}})
         if len(unique_mails) > end_idx:
             qr_items.append({"type": "action", "action": {"type": "message", "label": "Sau ➡️", "text": f"/ls mail {page+1}{day_suffix}"}})
-        qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới nhất", "text": f"/ls mail 1{day_suffix}"}})
+        qr_items.append({"type": "action", "action": {"type": "message", "label": "🔄 Mới", "text": f"/ls mail 1{day_suffix}"}})
+        qr_items.append({"type": "action", "action": {"type": "message", "label": "🚫 Block Nhanh", "text": "/block ls"}})
 
-        return {"text": ui_output, "quickReply": {"items": qr_items}}
+        return {
+            "type": "flex",
+            "altText": f"Hộp thư: {total_unique} email",
+            "contents": {
+                "type": "carousel",
+                "contents": bubbles
+            },
+            "quickReply": {"items": qr_items}
+        }
 
     if cmd == "mail":
         access_token = await get_google_access_token(user_id)
@@ -2152,15 +2219,10 @@ async def process_event(event: MessageEvent) -> None:
 
         # ── LAYER 4: REPLY ─────────────────────────────────────────────────
         if reply:
-            # Handle dict reply with Quick Reply buttons (e.g. from /ls mail)
             if isinstance(reply, dict):
-                text_content = strip_markdown(reply.get("text", ""))
-                chunks = _split_reply(text_content)
                 qr_data = reply.get("quickReply")
-                messages = [TextMessage(text=c) for c in chunks]
-                # Attach Quick Reply to last message
-                if qr_data and messages:
-                    qr_items = []
+                qr_items = []
+                if qr_data:
                     for item in qr_data.get("items", []):
                         act = item.get("action", {})
                         qr_items.append(
@@ -2171,8 +2233,24 @@ async def process_event(event: MessageEvent) -> None:
                                 )
                             )
                         )
-                    if qr_items:
-                        messages[-1].quick_reply = QuickReply(items=qr_items)
+                quick_reply_obj = QuickReply(items=qr_items) if qr_items else None
+
+                if reply.get("type") == "flex":
+                    from linebot.v3.messaging import FlexMessage, FlexContainer
+                    flex_msg = FlexMessage(
+                        alt_text=reply.get("altText", "Hộp thư Flex Message"),
+                        contents=FlexContainer.from_dict(reply.get("contents"))
+                    )
+                    if quick_reply_obj:
+                        flex_msg.quick_reply = quick_reply_obj
+                    messages = [flex_msg]
+                else:
+                    text_content = strip_markdown(reply.get("text", ""))
+                    chunks = _split_reply(text_content)
+                    messages = [TextMessage(text=c) for c in chunks]
+                    if quick_reply_obj and messages:
+                        messages[-1].quick_reply = quick_reply_obj
+                
                 await line_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
