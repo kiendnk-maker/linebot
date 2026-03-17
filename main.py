@@ -1616,8 +1616,6 @@ async def handle_command(user_id: str, text: str) -> str | None:
             if body_data:
                 body_data = body_data.replace("-", "+").replace("_", "/")
                 body_data += "=" * ((4 - len(body_data) % 4) % 4)
-                import base64
-                import re
                 try:
                     content_str = base64.b64decode(body_data).decode('utf-8')
                     content_str = re.sub(r'<style.*?>.*?</style>', '', content_str, flags=re.DOTALL|re.IGNORECASE)
