@@ -287,7 +287,13 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
         # Lựa chọn 1 hoặc 3: Cần tóm tắt
         if choice in ["1", "3"]:
-            prompt = f"Tóm tắt nội dung sau thành các gạch đầu dòng chính:\n\n{transcript[:3000]}"
+            prompt = (
+                "Bạn là chuyên gia phân tích bản ghi âm/cuộc họp. Hãy đọc kỹ bản bóc băng dưới đây và TÓM TẮT CHUYÊN SÂU:\n"
+                "1. 📌 **Chủ đề chính:** Các vấn đề cốt lõi được nhắc đến.\n"
+                "2. 💡 **Chi tiết quan trọng:** Các con số, quyết định, sự kiện đáng chú ý.\n"
+                "3. 🚀 **Action Items:** Các công việc cần làm tiếp theo (nếu có).\n\n"
+                f"Nội dung bóc băng:\n{transcript[:15000]}"
+            )
             summary = await main.call_groq_text([{"role": "user", "content": prompt}], main.MODEL_REGISTRY["llama70b"]["model_id"], model_key="llama70b", user_id=user_id)
 
         # Lựa chọn 2 hoặc 3: Cần lưu RAG
@@ -303,11 +309,17 @@ async def handle_command(user_id: str, text: str) -> str | None:
             import httpx
             async with httpx.AsyncClient() as client:
                 files = {'file': (filename, content_to_save.encode('utf-8'))}
-                resp = await client.post("https://file.io/?expires=1w", files=files, timeout=15.0)
-                if resp.status_code == 200 and resp.json().get("success"):
-                    link = resp.json().get("link")
+                # Ưu tiên 1: Máy chủ 0x0.st cực kỳ ổn định, không chặn IP
+                resp = await client.post("https://0x0.st", files=files, timeout=15.0)
+                if resp.status_code == 200:
+                    link = resp.text.strip()
+                else:
+                    # Fallback dự phòng: file.io
+                    resp2 = await client.post("https://file.io/?expires=1w", files=files, timeout=15.0)
+                    if resp2.status_code == 200 and resp2.json().get("success"):
+                        link = resp2.json().get("link")
         except Exception as e:
-            link = "(Lỗi tạo link tải)"
+            link = f"(Lỗi tạo link: {str(e)[:40]})"
 
         out = f"✅ Đã xử lý: {filename}\n"
         if summary: out += f"\n📝 TÓM TẮT:\n{summary}\n"
