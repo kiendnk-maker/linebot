@@ -1156,7 +1156,6 @@ async def lifespan(app: FastAPI):
 
 
 app            = FastAPI(lifespan=lifespan)
-app.include_router(gw_router)
 line_config    = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 webhook_parser = WebhookParser(LINE_CHANNEL_SECRET)
 
@@ -1167,6 +1166,7 @@ from fastapi.responses import HTMLResponse
 # --- MODULES TỰ VIẾT ---
 from database import DB_PATH, init_db, save_message, save_reminder
 from google_workspace import router as gw_router, handle_workspace_command
+app.include_router(gw_router)
 from rag_core import MAX_FILE_BYTES, SUPPORTED_RAG_EXTS, process_file_upload, has_rag_docs, rag_search, list_rag_docs, delete_rag_doc, clear_rag_docs
 from database import get_user_model, set_user_model, get_user_max_tokens, set_user_max_tokens, get_user_profile, save_user_profile, get_history_raw, count_history, get_summary, save_summary, get_reminders, cancel_reminder
 from tools_api import AVAILABLE_TOOLS, AGENT_TOOLS
