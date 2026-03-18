@@ -307,6 +307,8 @@ async def init_db() -> None:
             " uploaded_at INTEGER NOT NULL)"
         )
         await db.commit()
+        await db.execute("CREATE TABLE IF NOT EXISTS audio_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, transcript TEXT, filename TEXT, created_at INTEGER)")
+        await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -1907,6 +1909,51 @@ async def handle_command(user_id: str, text: str) -> str | None:
         )
 
     # ── RAG COMMANDS ───────────────────────────────────────────────────────
+    if cmd == "audio":
+        parts = arg.split()
+        if len(parts) != 2: return "⚠️ Lỗi: Sai cú pháp lệnh audio."
+        audio_id, choice = parts[0], parts[1]
+
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT transcript, filename FROM audio_cache WHERE id = ? AND user_id = ?", (int(audio_id), user_id)) as cur:
+                row = await cur.fetchone()
+        if not row: return "❌ Không tìm thấy dữ liệu âm thanh trong bộ nhớ tạm."
+        
+        transcript, filename = row
+        summary = ""
+        rag_msg = ""
+
+        # Lựa chọn 1 hoặc 3: Cần tóm tắt
+        if choice in ["1", "3"]:
+            prompt = f"Tóm tắt nội dung sau thành các gạch đầu dòng chính:\n\n{transcript[:3000]}"
+            summary = await call_groq_text([{"role": "user", "content": prompt}], MODEL_REGISTRY["llama70b"]["model_id"], model_key="llama70b", user_id=user_id)
+
+        # Lựa chọn 2 hoặc 3: Cần lưu RAG
+        if choice in ["2", "3"]:
+            rag_msg = await process_file_upload(user_id, transcript.encode('utf-8'), filename)
+
+        # Đóng gói file tải về (File.io)
+        content_to_save = transcript
+        if summary: content_to_save = f"--- TÓM TẮT ---\n{summary}\n\n--- NỘI DUNG GỐC ---\n{transcript}"
+
+        link = ""
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                files = {'file': (filename, content_to_save.encode('utf-8'))}
+                resp = await client.post("https://file.io/?expires=1w", files=files, timeout=15.0)
+                if resp.status_code == 200 and resp.json().get("success"):
+                    link = resp.json().get("link")
+        except Exception as e:
+            link = "(Lỗi tạo link tải)"
+
+        out = f"✅ Đã xử lý: {filename}\n"
+        if summary: out += f"\n📝 TÓM TẮT:\n{summary}\n"
+        if rag_msg: out += f"\n📚 RAG:\n{rag_msg}\n"
+        if link: out += f"\n🔗 Link tải TXT (Tự hủy):\n{link}"
+
+        return out
+
     if cmd == "rag":
         sub = arg.lower().split(maxsplit=1)
         sub_cmd = sub[0] if sub else ""
@@ -2161,56 +2208,54 @@ async def process_event(event: MessageEvent) -> None:
         elif isinstance(event.message, FileMessageContent):
             filename = event.message.file_name or ""
             ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-            logger.info(f"FILE UPLOAD | user={user_id} | filename={filename!r} | ext={ext!r}")
-
+            
             AUDIO_EXTS = {"mp3", "m4a", "wav", "ogg", "flac"}
 
-            # Guard 1: must be supported format
             if f".{ext}" not in SUPPORTED_RAG_EXTS and ext not in AUDIO_EXTS:
-                reply = f"⚠️ Chỉ hỗ trợ file văn bản ({', '.join(sorted(SUPPORTED_RAG_EXTS))}) và âm thanh (mp3, m4a, wav...)\nFile nhận được: {filename or '(không tên)'}"
+                reply = f"⚠️ Chỉ hỗ trợ văn bản ({', '.join(sorted(SUPPORTED_RAG_EXTS))}) và âm thanh.\nNhận được: {filename}"
             else:
-                file_size = getattr(event.message, "file_size", None)
-
-                # Guard 2: size <= 10MB
-                if file_size is not None and file_size > MAX_FILE_BYTES:
-                    reply = f"⚠️ File quá lớn ({file_size // 1024 // 1024}MB).\nGiới hạn tối đa {MAX_FILE_BYTES // 1024 // 1024}MB."
+                file_bytes = await line_blob_api.get_message_content(event.message.id)
+                if len(file_bytes) > MAX_FILE_BYTES:
+                    reply = f"⚠️ File quá lớn ({len(file_bytes) // 1024 // 1024}MB)."
                 else:
-                    file_bytes = await line_blob_api.get_message_content(event.message.id)
-                    if len(file_bytes) > MAX_FILE_BYTES:
-                        reply = f"⚠️ File quá lớn ({len(file_bytes) // 1024 // 1024}MB).\nGiới hạn tối đa {MAX_FILE_BYTES // 1024 // 1024}MB."
-                    else:
-                        if ext in AUDIO_EXTS:
-                            try:
-                                await line_api.push_message(PushMessageRequest(to=user_id, messages=[TextMessage(text="⏳ Đang bóc băng và phân tích file âm thanh...")]))
-                            except Exception:
-                                pass
-                            
-                            transcript = await call_groq_whisper(file_bytes)
-                            if "⚠️" in transcript:
-                                reply = transcript
-                            else:
-                                transcript = await clean_transcript(transcript)
-                                
-                                # Tạo tên file (5 từ) bằng Llama8b
-                                prompt_title = f"Tóm tắt đoạn văn sau thành tối đa 5 chữ để làm tên file. Chỉ trả về 5 chữ đó, không giải thích, không dấu câu thừa, phân cách bằng dấu gạch ngang (ví dụ: huong-dan-nau-an):\n\n{transcript[:1000]}"
-                                title = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
-                                
-                                import re
-                                safe_title = re.sub(r'[^a-zA-Z0-9À-ɏḀ-ỿ]', '-', title).strip('-')
-                                safe_title = re.sub(r'-+', '-', safe_title)
-                                if not safe_title: safe_title = "audio-transcript"
-                                new_filename = f"{safe_title[:30]}.txt"
-                                
-                                # Lưu vào RAG như một file TXT
-                                txt_bytes = transcript.encode('utf-8')
-                                rag_reply = await process_file_upload(user_id, txt_bytes, new_filename)
-                                reply = f"🎤 [BÓC BĂNG THÀNH CÔNG]\n📝 Đã lưu thành: {new_filename}\n\n{rag_reply}\n\n[Trích đoạn]: {transcript[:200]}..."
+                    if ext in AUDIO_EXTS:
+                        try:
+                            await line_api.push_message(PushMessageRequest(to=user_id, messages=[TextMessage(text="⏳ Đang bóc băng âm thanh...")]))
+                        except Exception: pass
+                        
+                        transcript = await call_groq_whisper(file_bytes)
+                        if "⚠️" in transcript:
+                            reply = transcript
                         else:
-                            # Nếu là PDF, DOCX, TXT bình thường
-                            if not ext and file_bytes[:512].decode("utf-8", errors="ignore").isprintable():
-                                filename = filename or "upload.txt"
-                                ext = "txt"
-                            reply = await process_file_upload(user_id, file_bytes, filename)
+                            transcript = await clean_transcript(transcript)
+                            prompt_title = f"Tóm tắt đoạn văn sau thành tối đa 5 chữ để làm tên file, phân cách bằng dấu gạch ngang:\n{transcript[:1000]}"
+                            title = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
+                            
+                            import re, time
+                            safe_title = re.sub(r'[^a-zA-Z0-9À-ɏḀ-ỿ]', '-', title).strip('-')
+                            safe_title = re.sub(r'-+', '-', safe_title) or "audio"
+                            new_filename = f"{safe_title[:30]}.txt"
+                            
+                            async with aiosqlite.connect(DB_PATH) as db:
+                                cur = await db.execute("INSERT INTO audio_cache (user_id, transcript, filename, created_at) VALUES (?, ?, ?, ?)", (user_id, transcript, new_filename, int(time.time())))
+                                audio_id = cur.lastrowid
+                                await db.commit()
+                                
+                            reply = {
+                                "text": f"🎤 Đã bóc băng xong! Tên file: {new_filename}\nBạn muốn xử lý như thế nào?",
+                                "quickReply": {
+                                    "items": [
+                                        {"type": "action", "action": {"type": "message", "label": "1. Tóm tắt + TXT", "text": f"/audio {audio_id} 1"}},
+                                        {"type": "action", "action": {"type": "message", "label": "2. Lưu RAG + TXT", "text": f"/audio {audio_id} 2"}},
+                                        {"type": "action", "action": {"type": "message", "label": "3. Cả hai + TXT", "text": f"/audio {audio_id} 3"}}
+                                    ]
+                                }
+                            }
+                    else:
+                        if not ext and file_bytes[:512].decode("utf-8", errors="ignore").isprintable():
+                            filename = filename or "upload.txt"
+                            ext = "txt"
+                        reply = await process_file_upload(user_id, file_bytes, filename)
 
         # ── TEXT PIPELINE ──────────────────────────────────────────────────
         elif isinstance(event.message, TextMessageContent):
