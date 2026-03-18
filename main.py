@@ -1118,51 +1118,11 @@ def _models_list_text() -> str:
 import json
 
 # 1. Định nghĩa các công cụ thực tế (Python Functions)
-def get_current_time() -> str:
-    """Trả về thời gian hiện tại của hệ thống."""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def calculate_math(expression: str) -> str:
-    """Tính toán biểu thức toán học an toàn."""
-    try:
-        # Chỉ cho phép tính toán cơ bản để tránh rủi ro bảo mật
-        allowed_chars = "0123456789+-*/(). "
-        if any(char not in allowed_chars for char in expression):
-            return "Lỗi: Biểu thức chứa ký tự không hợp lệ."
-        return str(eval(expression))
-    except Exception as e:
-        return f"Lỗi tính toán: {str(e)}"
 
 # Dictionary mapping tên công cụ với hàm Python
-AVAILABLE_TOOLS = {
-    "get_current_time": get_current_time,
-    "calculate_math": calculate_math
-}
 
 # 2. Định nghĩa Schema của Tools cho LLM hiểu
-AGENT_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_current_time",
-            "description": "Lấy ngày và giờ hiện tại của hệ thống.",
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "calculate_math",
-            "description": "Tính toán một biểu thức toán học (ví dụ: 15 * 24 + 100). Trả về kết quả chính xác.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "expression": {"type": "string", "description": "Biểu thức toán học cần tính"}
-                },
-                "required": ["expression"]
-            }
-        }
-    }
-]
 
 # 3. Vòng lặp Agentic (Core Logic)
 
@@ -1871,6 +1831,7 @@ from fastapi.responses import HTMLResponse
 
 # --- MODULES TỰ VIẾT ---
 from database import DB_PATH, init_db, save_message, save_reminder
+from tools_api import AVAILABLE_TOOLS, AGENT_TOOLS
 from agents_workflow import run_multi_agent_workflow, run_pro_workflow, run_agentic_loop
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
