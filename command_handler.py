@@ -288,12 +288,13 @@ async def handle_command(user_id: str, text: str) -> str | None:
         # Lựa chọn 1 hoặc 3: Cần tóm tắt
         if choice in ["1", "3"]:
             prompt = (
-                "Bạn là một Thư ký/Chuyên gia Phân tích cấp cao. Dưới đây là nội dung bóc băng âm thanh. Hãy phân tích và trình bày một báo cáo toàn diện:\n\n"
-                "🎯 **1. Bức tranh toàn cảnh (Executive Summary):** Tóm tắt trong 2-3 câu về bối cảnh và mục đích chính của cuộc hội thoại.\n"
-                "📌 **2. Các luận điểm chính:** Phân tích chi tiết các vấn đề cốt lõi đã được thảo luận.\n"
-                "💡 **3. Thông tin/Dữ liệu quan trọng:** Nêu bật các con số, tên riêng, thời gian, quyết định then chốt.\n"
-                "🚀 **4. Action Items:** Liệt kê các công việc cần làm, ai làm (nếu có).\n\n"
-                f"Nội dung bóc băng:\n{transcript[:15000]}"
+                "Bạn là Thư ký/Chuyên gia Phân tích. Đọc nội dung bóc băng và lập báo cáo.\n"
+                "QUY TẮC TỐI THƯỢNG: TUYỆT ĐỐI KHÔNG chào hỏi, KHÔNG xin lỗi, KHÔNG dùng câu mào đầu. VÀO THẲNG VẤN ĐỀ LUÔN.\n\n"
+                "🎯 **1. Bức tranh toàn cảnh (Executive Summary):** Tóm tắt 2-3 câu.\n"
+                "📌 **2. Các luận điểm chính:** Phân tích chi tiết.\n"
+                "💡 **3. Thông tin/Dữ liệu quan trọng:** Con số, quyết định.\n"
+                "🚀 **4. Action Items:** Công việc cần làm.\n\n"
+                f"Nội dung:\n{transcript[:15000]}"
             )
             summary = await main.call_groq_text([{"role": "user", "content": prompt}], main.MODEL_REGISTRY["llama70b"]["model_id"], model_key="llama70b", user_id=user_id)
 
@@ -307,24 +308,27 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
         link = ""
         try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                # Ưu tiên 1: Catbox.moe (Chống block IP)
-                data = {"reqtype": "fileupload"}
-                files = {"fileToUpload": (filename, content_to_save.encode("utf-8"))}
-                resp = await client.post("https://catbox.moe/user/api.php", data=data, files=files, timeout=20.0)
-                if resp.status_code == 200 and "catbox.moe" in resp.text:
-                    link = resp.text.strip()
-                else:
-                    # Fallback dự phòng: file.io
-                    files_io = {"file": (filename, content_to_save.encode("utf-8"))}
-                    resp2 = await client.post("https://file.io/?expires=1w", files=files_io, timeout=20.0)
-                    if resp2.status_code == 200 and resp2.json().get("success"):
-                        link = resp2.json().get("link")
+            import httpx, json
+            from google_workspace import get_google_access_token
+            token = await get_google_access_token(user_id)
+            if token:
+                metadata = {"name": filename, "mimeType": "text/plain"}
+                files = {
+                    "metadata": ("metadata.json", json.dumps(metadata), "application/json"),
+                    "file": (filename, content_to_save.encode("utf-8"), "text/plain")
+                }
+                async with httpx.AsyncClient() as client:
+                    headers = {"Authorization": f"Bearer {token}"}
+                    resp = await client.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", headers=headers, files=files, timeout=20.0)
+                    if resp.status_code == 200:
+                        file_id = resp.json().get("id")
+                        link = f"https://drive.google.com/file/d/{file_id}/view"
                     else:
-                        link = f"(Lỗi tải file: Catbox {resp.status_code}, FileIO {resp2.status_code})"
+                        link = f"(Lỗi upload Drive: HTTP {resp.status_code})"
+            else:
+                link = "(Bạn cần gửi lệnh /login để liên kết Google Drive trước)"
         except Exception as e:
-            link = f"(Lỗi hệ thống tạo link: {str(e)[:40]})"
+            link = f"(Lỗi hệ thống: {str(e)[:40]})"
 
         out = f"✅ Đã xử lý: {filename}\n"
         if summary: out += f"\n📝 TÓM TẮT:\n{summary}\n"
