@@ -94,7 +94,7 @@ async def get_user_model(user_id: str) -> str:
             row = await cur.fetchone()
     key = row[0] if row else "llama70b"
     try:
-        from main import MODEL_REGISTRY, DEFAULT_MODEL_KEY
+        from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
         return key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY
     except ImportError:
         return key
