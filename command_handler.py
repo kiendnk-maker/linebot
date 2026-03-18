@@ -273,47 +273,95 @@ async def handle_command(user_id: str, text: str) -> str | None:
     # ── RAG COMMANDS ───────────────────────────────────────────────────────
     if cmd == "audio":
         parts = arg.split()
-        if len(parts) != 2: return "⚠️ Lỗi: Sai cú pháp lệnh audio."
+        if len(parts) != 2: return "⚠️ Sai cú pháp. Dùng: /audio <id> <1|2|3>"
         audio_id, choice = parts[0], parts[1]
+        if choice not in ("1", "2", "3"): return "⚠️ Chọn 1, 2 hoặc 3."
 
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.execute("SELECT transcript, filename FROM audio_cache WHERE id = ? AND user_id = ?", (int(audio_id), user_id)) as cur:
                 row = await cur.fetchone()
-        if not row: return "❌ Không tìm thấy dữ liệu âm thanh trong bộ nhớ tạm."
-        
+        if not row: return "❌ Không tìm thấy bản ghi âm thanh."
+
         transcript, filename = row
         summary = ""
         rag_msg = ""
 
-        # Lựa chọn 1 hoặc 3: Cần tóm tắt
-        if choice in ["1", "3"]:
-            prompt = (
-                "Bạn là một chuyên gia phân tích dữ liệu và biên tập viên cao cấp. "
-                "Hãy thực hiện một cuộc ĐẠI PHẪU nội dung bóc băng sau:\n\n"
-                "🎯 **1. TỔNG QUAN CHIẾN LƯỢC (Executive Summary):**\n"
-                "   - Phân tích bối cảnh, mục đích thực sự của cuộc đối thoại.\n"
-                "   - Tóm tắt cốt lõi vấn đề trong 3 câu đắt giá nhất.\n\n"
-                "📌 **2. CẤU TRÚC NỘI DUNG CHI TIẾT (Deep Analysis):**\n"
-                "   - Chia nội dung thành từng mảng lớn (Mảng A, Mảng B...).\n"
-                "   - Phân tích sâu lập luận của người nói. Đừng chỉ liệt kê, hãy giải thích TẠI SAO.\n\n"
-                "💡 **3. CÁC ĐIỂM DỮ LIỆU VÀNG (Key Data & Entities):**\n"
-                "   - Trích xuất toàn bộ con số, mốc thời gian, tên riêng, thuật ngữ, quy định cụ thể.\n\n"
-                "🚀 **4. KẾ HOẠCH HÀNH ĐỘNG & LỜI KHUYÊN (Action Plan):**\n"
-                "   - Danh sách việc cần làm (Ai làm, làm gì, khi nào).\n"
-                "   - Đưa ra 2-3 lời khuyên thực tế.\n\n"
-                "⚠️ QUY TẮC: CẤM nói nhảm, CẤM mào đầu, CẤM xin lỗi. TRÌNH BÀY CHUYÊN NGHIỆP.\n"
-                f"Bản bóc băng:\n{transcript[:15000]}"
+        # --- Progress feedback ---
+        try:
+            from linebot.v3.messaging import (
+                Configuration, AsyncApiClient, AsyncMessagingApi,
+                PushMessageRequest, TextMessage
             )
-            summary = await main.call_groq_text([{"role": "user", "content": prompt}], main.MODEL_REGISTRY["llama70b"]["model_id"], model_key="llama70b", user_id=user_id)
+            import os
+            _cfg = Configuration(access_token=os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
+            async with AsyncApiClient(_cfg) as _api_client:
+                _line = AsyncMessagingApi(_api_client)
+                label = {"1": "phân tích", "2": "lưu RAG", "3": "phân tích + lưu RAG"}[choice]
+                await _line.push_message(PushMessageRequest(
+                    to=user_id, messages=[TextMessage(text=f"⏳ Đang {label}...")]
+                ))
+        except Exception:
+            pass
 
-        # Lựa chọn 2 hoặc 3: Cần lưu RAG
+        # --- Summarize (choice 1 or 3) ---
+        if choice in ["1", "3"]:
+            from groq import AsyncGroq
+            import httpx as _httpx
+            _groq_key = os.environ.get("GROQ_API_KEY", "")
+            _summary_model = main.MODEL_REGISTRY["gpt120b"]["model_id"]
+
+            prompt = (
+                "Phân tích nội dung bóc băng dưới đây. VÀO THẲNG VẤN ĐỀ.\n\n"
+                "🎯 TỔNG QUAN:\n"
+                "Tóm tắt cốt lõi trong 2-3 câu. Bối cảnh và mục đích cuộc trao đổi.\n\n"
+                "📌 PHÂN TÍCH CHI TIẾT:\n"
+                "Chia thành các mảng chính. Với mỗi mảng: luận điểm → bằng chứng → ý nghĩa.\n\n"
+                "💡 DỮ LIỆU QUAN TRỌNG:\n"
+                "Mọi con số, ngày tháng, tên riêng, thuật ngữ, quy định cụ thể.\n\n"
+                "🚀 HÀNH ĐỘNG:\n"
+                "Việc cần làm (ai, làm gì, deadline). 2-3 lời khuyên thực tế.\n\n"
+                "---\n"
+                f"{transcript[:15000]}"
+            )
+
+            # Direct Groq call with max_tokens=3000, temp=0.3, bypass call_groq_text limit
+            async with _httpx.AsyncClient() as _http:
+                _client = AsyncGroq(api_key=_groq_key, http_client=_http)
+                try:
+                    _resp = await _client.chat.completions.create(
+                        model=_summary_model,
+                        messages=[
+                            {"role": "system", "content": "Bạn là chuyên gia phân tích. TUYỆT ĐỐI KHÔNG mào đầu, KHÔNG chào hỏi, KHÔNG nói 'Tôi sẽ...'. Bắt đầu NGAY bằng 🎯."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.3,
+                        max_tokens=3000,
+                        reasoning_effort="low",
+                    )
+                    summary = (_resp.choices[0].message.content or "").strip()
+                except Exception as e:
+                    summary = f"⚠️ Lỗi phân tích: {str(e)[:100]}"
+
+        # --- RAG (choice 2 or 3) ---
         if choice in ["2", "3"]:
             rag_msg = await process_file_upload(user_id, transcript.encode('utf-8'), filename)
 
-        # Đóng gói file tải về (File.io)
-        content_to_save = transcript
-        if summary: content_to_save = f"--- TÓM TẮT ---\n{summary}\n\n--- NỘI DUNG GỐC ---\n{transcript}"
+        # --- Build TXT content with metadata ---
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        _now = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M")
+        _word_count = len(transcript.split())
 
+        sections = [f"📄 {filename}", f"📅 {_now} | ~{_word_count} từ", ""]
+        if summary:
+            sections.append("═══ PHÂN TÍCH ═══")
+            sections.append(summary)
+            sections.append("")
+        sections.append("═══ NỘI DUNG GỐC ═══")
+        sections.append(transcript)
+        content_to_save = "\n".join(sections)
+
+        # --- Upload to Google Drive ---
         link = ""
         try:
             import httpx, json
@@ -332,16 +380,17 @@ async def handle_command(user_id: str, text: str) -> str | None:
                         file_id = resp.json().get("id")
                         link = f"https://drive.google.com/file/d/{file_id}/view"
                     else:
-                        link = f"(Lỗi upload Drive: HTTP {resp.status_code})"
+                        link = f"(Lỗi upload: HTTP {resp.status_code})"
             else:
-                link = "(Bạn cần gửi lệnh /login để liên kết Google Drive trước)"
+                link = "(Gửi /login để liên kết Google Drive)"
         except Exception as e:
-            link = f"(Lỗi hệ thống: {str(e)[:40]})"
+            link = f"(Lỗi: {str(e)[:40]})"
 
-        out = f"✅ Đã xử lý: {filename}\n"
-        if summary: out += f"\n📝 TÓM TẮT:\n{summary}\n"
-        if rag_msg: out += f"\n📚 RAG:\n{rag_msg}\n"
-        if link: out += f"\n🔗 Link tải TXT (Tự hủy):\n{link}"
+        # --- Format output message ---
+        out = f"✅ {filename}\n"
+        if summary: out += f"\n📝 PHÂN TÍCH:\n{summary}\n"
+        if rag_msg: out += f"\n📚 {rag_msg}\n"
+        if link: out += f"\n🔗 {link}"
 
         return out
 
