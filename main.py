@@ -2237,6 +2237,7 @@ async def process_event(event: MessageEvent) -> None:
                             new_filename = f"{safe_title[:30]}.txt"
                             
                             async with aiosqlite.connect(DB_PATH) as db:
+                                await db.execute("CREATE TABLE IF NOT EXISTS audio_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, transcript TEXT, filename TEXT, created_at INTEGER)")
                                 cur = await db.execute("INSERT INTO audio_cache (user_id, transcript, filename, created_at) VALUES (?, ?, ?, ?)", (user_id, transcript, new_filename, int(time.time())))
                                 audio_id = cur.lastrowid
                                 await db.commit()
