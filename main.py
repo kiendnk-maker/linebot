@@ -184,7 +184,6 @@ async def process_event(event: MessageEvent) -> None:
                         else:
                             transcript = await clean_transcript(transcript)
                             prompt_title = f'Nhiệm vụ: Trả về ĐÚNG 3-5 từ không dấu nối bằng gạch ngang, KHÔNG giải thích: {transcript[:1000]}'
-{transcript[:1500]}"
                             title = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
                             t_clean = title.lower().strip()
                             for r in ['tôi hiểu', 'dưới đây', 'nhiệm vụ', 'tên file', 'là', ':', ' ', '.', '"', '\'']:

@@ -288,13 +288,21 @@ async def handle_command(user_id: str, text: str) -> str | None:
         # Lựa chọn 1 hoặc 3: Cần tóm tắt
         if choice in ["1", "3"]:
             prompt = (
-                "Bạn là Thư ký/Chuyên gia Phân tích. Đọc nội dung bóc băng và lập báo cáo.\n"
-                "QUY TẮC TỐI THƯỢNG: TUYỆT ĐỐI KHÔNG chào hỏi, KHÔNG xin lỗi, KHÔNG dùng câu mào đầu. VÀO THẲNG VẤN ĐỀ LUÔN.\n\n"
-                "🎯 **1. Bức tranh toàn cảnh (Executive Summary):** Tóm tắt 2-3 câu.\n"
-                "📌 **2. Các luận điểm chính:** Phân tích chi tiết.\n"
-                "💡 **3. Thông tin/Dữ liệu quan trọng:** Con số, quyết định.\n"
-                "🚀 **4. Action Items:** Công việc cần làm.\n\n"
-                f"Nội dung:\n{transcript[:15000]}"
+                "Bạn là một chuyên gia phân tích dữ liệu và biên tập viên cao cấp. "
+                "Hãy thực hiện một cuộc ĐẠI PHẪU nội dung bóc băng sau:\n\n"
+                "🎯 **1. TỔNG QUAN CHIẾN LƯỢC (Executive Summary):**\n"
+                "   - Phân tích bối cảnh, mục đích thực sự của cuộc đối thoại.\n"
+                "   - Tóm tắt cốt lõi vấn đề trong 3 câu đắt giá nhất.\n\n"
+                "📌 **2. CẤU TRÚC NỘI DUNG CHI TIẾT (Deep Analysis):**\n"
+                "   - Chia nội dung thành từng mảng lớn (Mảng A, Mảng B...).\n"
+                "   - Phân tích sâu lập luận của người nói. Đừng chỉ liệt kê, hãy giải thích TẠI SAO.\n\n"
+                "💡 **3. CÁC ĐIỂM DỮ LIỆU VÀNG (Key Data & Entities):**\n"
+                "   - Trích xuất toàn bộ con số, mốc thời gian, tên riêng, thuật ngữ, quy định cụ thể.\n\n"
+                "🚀 **4. KẾ HOẠCH HÀNH ĐỘNG & LỜI KHUYÊN (Action Plan):**\n"
+                "   - Danh sách việc cần làm (Ai làm, làm gì, khi nào).\n"
+                "   - Đưa ra 2-3 lời khuyên thực tế.\n\n"
+                "⚠️ QUY TẮC: CẤM nói nhảm, CẤM mào đầu, CẤM xin lỗi. TRÌNH BÀY CHUYÊN NGHIỆP.\n"
+                f"Bản bóc băng:\n{transcript[:15000]}"
             )
             summary = await main.call_groq_text([{"role": "user", "content": prompt}], main.MODEL_REGISTRY["llama70b"]["model_id"], model_key="llama70b", user_id=user_id)
 
