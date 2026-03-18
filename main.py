@@ -183,13 +183,17 @@ async def process_event(event: MessageEvent) -> None:
                             reply = transcript
                         else:
                             transcript = await clean_transcript(transcript)
-                            prompt_title = f"Nhiệm vụ: Chỉ trả về 3-5 từ không dấu, ngăn cách bằng dấu gạch ngang (VD: bao-cao-hoc-tap). KHÔNG CHÀO HỎI, KHÔNG GIẢI THÍCH:
+                            prompt_title = f'Nhiệm vụ: Trả về ĐÚNG 3-5 từ không dấu nối bằng gạch ngang, KHÔNG giải thích: {transcript[:1000]}'
 {transcript[:1500]}"
                             title = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
+                            t_clean = title.lower().strip()
+                            for r in ['tôi hiểu', 'dưới đây', 'nhiệm vụ', 'tên file', 'là', ':', ' ', '.', '"', '\'']:
+                                t_clean = t_clean.replace(r, '').strip('-')
+                            title = t_clean or 'ban-boc-bang'
+                            new_filename = f'{title[:40]}.txt'
                             
                             safe_title = re.sub(r'[^a-zA-Z0-9À-ɏḀ-ỿ]', '-', title).strip('-')
                             safe_title = re.sub(r'-+', '-', safe_title) or "audio"
-                            new_filename = f"{safe_title[:30]}.txt"
                             
                             async with aiosqlite.connect(DB_PATH) as db:
                                 await db.execute("CREATE TABLE IF NOT EXISTS audio_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, transcript TEXT, filename TEXT, created_at INTEGER)")
