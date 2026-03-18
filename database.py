@@ -92,8 +92,12 @@ async def get_user_model(user_id: str) -> str:
             "SELECT model_key FROM user_settings WHERE user_id = ?", (user_id,)
         ) as cur:
             row = await cur.fetchone()
-    key = row[0] if row else DEFAULT_MODEL_KEY
-    return key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY
+    key = row[0] if row else "llama70b"
+    try:
+        from main import MODEL_REGISTRY, DEFAULT_MODEL_KEY
+        return key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY
+    except ImportError:
+        return key
 
 async def set_user_model(user_id: str, model_key: str) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
