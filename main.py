@@ -269,76 +269,19 @@ _rag_disabled: set[str] = set()   # user_ids with RAG disabled
 # ---------------------------------------------------------------------------
 # DATABASE — user settings helpers
 # ---------------------------------------------------------------------------
-async def get_user_model(user_id: str) -> str:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT model_key FROM user_settings WHERE user_id = ?", (user_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    key = row[0] if row else DEFAULT_MODEL_KEY
-    return key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY
 
 
-async def set_user_model(user_id: str, model_key: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO user_settings (user_id, model_key) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET model_key = excluded.model_key",
-            (user_id, model_key),
-        )
-        await db.commit()
 
 
-async def get_user_max_tokens(user_id: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT max_tokens FROM user_settings2 WHERE user_id = ?", (user_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    return row[0] if row else 800
 
 
-async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO user_settings2 (user_id, max_tokens) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET max_tokens = excluded.max_tokens",
-            (user_id, max_tokens),
-        )
-        await db.commit()
 
 
 # ---------------------------------------------------------------------------
 # DATABASE — user profile helpers
 # ---------------------------------------------------------------------------
-async def get_user_profile(user_id: str) -> dict:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT name, occupation, learning, notes FROM user_profile WHERE user_id = ?",
-            (user_id,),
-        ) as cur:
-            row = await cur.fetchone()
-    if not row:
-        return {}
-    return {k: v for k, v in zip(("name", "occupation", "learning", "notes"), row) if v}
 
 
-async def save_user_profile(user_id: str, **kwargs) -> None:
-    if not kwargs:
-        return
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO user_profile (user_id) VALUES (?) "
-            "ON CONFLICT(user_id) DO NOTHING",
-            (user_id,),
-        )
-        for key, value in kwargs.items():
-            if key in ("name", "occupation", "learning", "notes"):
-                await db.execute(
-                    f"UPDATE user_profile SET {key} = ? WHERE user_id = ?",
-                    (value, user_id),
-                )
-        await db.commit()
 
 
 async def build_system_prompt(user_id: str, model_key: str) -> str:
@@ -359,47 +302,15 @@ async def build_system_prompt(user_id: str, model_key: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def get_history_raw(user_id: str, limit: int = 30) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT role, content FROM history "
-            "WHERE user_id = ? ORDER BY id DESC LIMIT ?",
-            (user_id, limit),
-        ) as cur:
-            rows = await cur.fetchall()
-    return [{"role": r, "content": c} for r, c in reversed(rows)]
 
 
-async def count_history(user_id: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT COUNT(*) FROM history WHERE user_id = ?", (user_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    return row[0] if row else 0
 
 
 # ---------------------------------------------------------------------------
 # SUMMARY MEMORY
 # ---------------------------------------------------------------------------
-async def get_summary(user_id: str) -> str:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT content FROM summary WHERE user_id = ?", (user_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    return row[0] if row else ""
 
 
-async def save_summary(user_id: str, content: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO summary (user_id, content, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET "
-            "content = excluded.content, updated_at = excluded.updated_at",
-            (user_id, content, int(time.time())),
-        )
-        await db.commit()
 
 
 async def maybe_summarize(user_id: str) -> None:
@@ -456,25 +367,8 @@ async def get_history_with_summary(user_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-async def get_reminders(user_id: str) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT id, message, fire_at, repeat FROM reminders "
-            "WHERE user_id = ? AND done = 0 ORDER BY fire_at ASC",
-            (user_id,),
-        ) as cur:
-            rows = await cur.fetchall()
-    return [{"id": r[0], "message": r[1], "fire_at": r[2], "repeat": r[3]} for r in rows]
 
 
-async def cancel_reminder(user_id: str, reminder_id: int) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            "UPDATE reminders SET done = 1 WHERE id = ? AND user_id = ? AND done = 0",
-            (reminder_id, user_id),
-        )
-        await db.commit()
-        return cur.rowcount > 0
 
 
 def _next_fire(fire_at: int, repeat: str) -> int:
@@ -1831,6 +1725,7 @@ from fastapi.responses import HTMLResponse
 
 # --- MODULES TỰ VIẾT ---
 from database import DB_PATH, init_db, save_message, save_reminder
+from database import get_user_model, set_user_model, get_user_max_tokens, set_user_max_tokens, get_user_profile, save_user_profile, get_history_raw, count_history, get_summary, save_summary, get_reminders, cancel_reminder
 from tools_api import AVAILABLE_TOOLS, AGENT_TOOLS
 from agents_workflow import run_multi_agent_workflow, run_pro_workflow, run_agentic_loop
 
