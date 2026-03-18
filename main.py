@@ -183,7 +183,7 @@ async def process_event(event: MessageEvent) -> None:
                             reply = transcript
                         else:
                             transcript = await clean_transcript(transcript)
-                            prompt_title = f"Tóm tắt đoạn văn sau thành tối đa 5 chữ để làm tên file, phân cách bằng dấu gạch ngang:\n{transcript[:1000]}"
+                            prompt_title = f"Hãy tạo tên file ngắn gọn (3-6 chữ) phản ánh CỐT LÕI đoạn sau. CHỈ in ra tiếng Việt KHÔNG DẤU, nối bằng gạch ngang (VD: hop-du-an-tai-chinh):\n{transcript[:1500]}"
                             title = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
                             
                             safe_title = re.sub(r'[^a-zA-Z0-9À-ɏḀ-ỿ]', '-', title).strip('-')

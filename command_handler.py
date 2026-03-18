@@ -288,10 +288,11 @@ async def handle_command(user_id: str, text: str) -> str | None:
         # Lựa chọn 1 hoặc 3: Cần tóm tắt
         if choice in ["1", "3"]:
             prompt = (
-                "Bạn là chuyên gia phân tích bản ghi âm/cuộc họp. Hãy đọc kỹ bản bóc băng dưới đây và TÓM TẮT CHUYÊN SÂU:\n"
-                "1. 📌 **Chủ đề chính:** Các vấn đề cốt lõi được nhắc đến.\n"
-                "2. 💡 **Chi tiết quan trọng:** Các con số, quyết định, sự kiện đáng chú ý.\n"
-                "3. 🚀 **Action Items:** Các công việc cần làm tiếp theo (nếu có).\n\n"
+                "Bạn là một Thư ký/Chuyên gia Phân tích cấp cao. Dưới đây là nội dung bóc băng âm thanh. Hãy phân tích và trình bày một báo cáo toàn diện:\n\n"
+                "🎯 **1. Bức tranh toàn cảnh (Executive Summary):** Tóm tắt trong 2-3 câu về bối cảnh và mục đích chính của cuộc hội thoại.\n"
+                "📌 **2. Các luận điểm chính:** Phân tích chi tiết các vấn đề cốt lõi đã được thảo luận.\n"
+                "💡 **3. Thông tin/Dữ liệu quan trọng:** Nêu bật các con số, tên riêng, thời gian, quyết định then chốt.\n"
+                "🚀 **4. Action Items:** Liệt kê các công việc cần làm, ai làm (nếu có).\n\n"
                 f"Nội dung bóc băng:\n{transcript[:15000]}"
             )
             summary = await main.call_groq_text([{"role": "user", "content": prompt}], main.MODEL_REGISTRY["llama70b"]["model_id"], model_key="llama70b", user_id=user_id)
@@ -308,18 +309,22 @@ async def handle_command(user_id: str, text: str) -> str | None:
         try:
             import httpx
             async with httpx.AsyncClient() as client:
-                files = {'file': (filename, content_to_save.encode('utf-8'))}
-                # Ưu tiên 1: Máy chủ 0x0.st cực kỳ ổn định, không chặn IP
-                resp = await client.post("https://0x0.st", files=files, timeout=15.0)
-                if resp.status_code == 200:
+                # Ưu tiên 1: Catbox.moe (Chống block IP)
+                data = {"reqtype": "fileupload"}
+                files = {"fileToUpload": (filename, content_to_save.encode("utf-8"))}
+                resp = await client.post("https://catbox.moe/user/api.php", data=data, files=files, timeout=20.0)
+                if resp.status_code == 200 and "catbox.moe" in resp.text:
                     link = resp.text.strip()
                 else:
                     # Fallback dự phòng: file.io
-                    resp2 = await client.post("https://file.io/?expires=1w", files=files, timeout=15.0)
+                    files_io = {"file": (filename, content_to_save.encode("utf-8"))}
+                    resp2 = await client.post("https://file.io/?expires=1w", files=files_io, timeout=20.0)
                     if resp2.status_code == 200 and resp2.json().get("success"):
                         link = resp2.json().get("link")
+                    else:
+                        link = f"(Lỗi tải file: Catbox {resp.status_code}, FileIO {resp2.status_code})"
         except Exception as e:
-            link = f"(Lỗi tạo link: {str(e)[:40]})"
+            link = f"(Lỗi hệ thống tạo link: {str(e)[:40]})"
 
         out = f"✅ Đã xử lý: {filename}\n"
         if summary: out += f"\n📝 TÓM TẮT:\n{summary}\n"
