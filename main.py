@@ -2161,33 +2161,56 @@ async def process_event(event: MessageEvent) -> None:
         elif isinstance(event.message, FileMessageContent):
             filename = event.message.file_name or ""
             ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-            logger.info(f"FILE UPLOAD | user={user_id} | filename={filename!r} | ext={ext!r} | content_type={getattr(event.message, 'content_type', 'unknown')}")
+            logger.info(f"FILE UPLOAD | user={user_id} | filename={filename!r} | ext={ext!r}")
+
+            AUDIO_EXTS = {"mp3", "m4a", "wav", "ogg", "flac"}
 
             # Guard 1: must be supported format
-            if f".{ext}" not in SUPPORTED_RAG_EXTS:
-                reply = f"⚠️ Chỉ hỗ trợ file: {', '.join(sorted(SUPPORTED_RAG_EXTS))}\nFile nhận được: {filename or '(không tên)'}"
+            if f".{ext}" not in SUPPORTED_RAG_EXTS and ext not in AUDIO_EXTS:
+                reply = f"⚠️ Chỉ hỗ trợ file văn bản ({', '.join(sorted(SUPPORTED_RAG_EXTS))}) và âm thanh (mp3, m4a, wav...)\nFile nhận được: {filename or '(không tên)'}"
             else:
                 file_size = getattr(event.message, "file_size", None)
 
                 # Guard 2: size <= 10MB
                 if file_size is not None and file_size > MAX_FILE_BYTES:
-                    reply = (
-                        f"⚠️ File quá lớn ({file_size // 1024 // 1024}MB).\n"
-                        f"Giới hạn tối đa {MAX_FILE_BYTES // 1024 // 1024}MB."
-                    )
+                    reply = f"⚠️ File quá lớn ({file_size // 1024 // 1024}MB).\nGiới hạn tối đa {MAX_FILE_BYTES // 1024 // 1024}MB."
                 else:
                     file_bytes = await line_blob_api.get_message_content(event.message.id)
                     if len(file_bytes) > MAX_FILE_BYTES:
-                        reply = (
-                            f"⚠️ File quá lớn ({len(file_bytes) // 1024 // 1024}MB).\n"
-                            f"Giới hạn tối đa {MAX_FILE_BYTES // 1024 // 1024}MB."
-                        )
+                        reply = f"⚠️ File quá lớn ({len(file_bytes) // 1024 // 1024}MB).\nGiới hạn tối đa {MAX_FILE_BYTES // 1024 // 1024}MB."
                     else:
-                        # If no extension but content looks like text, treat as .txt
-                        if not ext and file_bytes[:512].decode("utf-8", errors="ignore").isprintable():
-                            filename = filename or "upload.txt"
-                            ext = "txt"
-                        reply = await process_file_upload(user_id, file_bytes, filename)
+                        if ext in AUDIO_EXTS:
+                            try:
+                                await line_api.push_message(PushMessageRequest(to=user_id, messages=[TextMessage(text="⏳ Đang bóc băng và phân tích file âm thanh...")]))
+                            except Exception:
+                                pass
+                            
+                            transcript = await call_groq_whisper(file_bytes)
+                            if "⚠️" in transcript:
+                                reply = transcript
+                            else:
+                                transcript = await clean_transcript(transcript)
+                                
+                                # Tạo tên file (5 từ) bằng Llama8b
+                                prompt_title = f"Tóm tắt đoạn văn sau thành tối đa 5 chữ để làm tên file. Chỉ trả về 5 chữ đó, không giải thích, không dấu câu thừa, phân cách bằng dấu gạch ngang (ví dụ: huong-dan-nau-an):\n\n{transcript[:1000]}"
+                                title = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
+                                
+                                import re
+                                safe_title = re.sub(r'[^a-zA-Z0-9À-ɏḀ-ỿ]', '-', title).strip('-')
+                                safe_title = re.sub(r'-+', '-', safe_title)
+                                if not safe_title: safe_title = "audio-transcript"
+                                new_filename = f"{safe_title[:30]}.txt"
+                                
+                                # Lưu vào RAG như một file TXT
+                                txt_bytes = transcript.encode('utf-8')
+                                rag_reply = await process_file_upload(user_id, txt_bytes, new_filename)
+                                reply = f"🎤 [BÓC BĂNG THÀNH CÔNG]\n📝 Đã lưu thành: {new_filename}\n\n{rag_reply}\n\n[Trích đoạn]: {transcript[:200]}..."
+                        else:
+                            # Nếu là PDF, DOCX, TXT bình thường
+                            if not ext and file_bytes[:512].decode("utf-8", errors="ignore").isprintable():
+                                filename = filename or "upload.txt"
+                                ext = "txt"
+                            reply = await process_file_upload(user_id, file_bytes, filename)
 
         # ── TEXT PIPELINE ──────────────────────────────────────────────────
         elif isinstance(event.message, TextMessageContent):
