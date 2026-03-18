@@ -183,16 +183,28 @@ async def process_event(event: MessageEvent) -> None:
                             reply = transcript
                         else:
                             transcript = await clean_transcript(transcript)
-                            prompt_title = f'Nhiệm vụ: Trả về ĐÚNG 3-5 từ không dấu nối bằng gạch ngang, KHÔNG giải thích: {transcript[:1000]}'
-                            title = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
-                            t_clean = title.lower().strip()
-                            for r in ['tôi hiểu', 'dưới đây', 'nhiệm vụ', 'tên file', 'là', ':', ' ', '.', '"', '\'']:
-                                t_clean = t_clean.replace(r, '').strip('-')
-                            title = t_clean or 'ban-boc-bang'
-                            new_filename = f'{title[:40]}.txt'
-                            
-                            safe_title = re.sub(r'[^a-zA-Z0-9À-ɏḀ-ỿ]', '-', title).strip('-')
-                            safe_title = re.sub(r'-+', '-', safe_title) or "audio"
+                            prompt_title = (
+                                "Tạo tên file slug cho nội dung sau. "
+                                "QUY TẮC BẮT BUỘC: Chỉ trả về ĐÚNG 3-5 từ tiếng Việt KHÔNG DẤU, "
+                                "nối bằng gạch ngang. KHÔNG viết gì khác. "
+                                "VD: phan-tich-du-lieu, hop-team-marketing, bao-cao-tai-chinh\n"
+                                f"{transcript[:500]}"
+                            )
+                            title_raw = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
+                            # Aggressive cleanup: only keep [a-z0-9-]
+                            safe_title = re.sub(r'[^a-zA-Z0-9\-]', '', title_raw.strip().split('\n')[0].lower())
+                            safe_title = re.sub(r'-+', '-', safe_title).strip('-')
+                            # Validate: must be slug-like (has hyphens, reasonable length)
+                            if not safe_title or len(safe_title) < 3 or '-' not in safe_title:
+                                # Fallback: extract first few words from transcript
+                                import unicodedata
+                                fallback = transcript[:80].lower()
+                                fallback = unicodedata.normalize('NFD', fallback)
+                                fallback = ''.join(c for c in fallback if unicodedata.category(c) != 'Mn')
+                                fallback = re.sub(r'[^a-z0-9]+', '-', fallback).strip('-')
+                                words = fallback.split('-')[:4]
+                                safe_title = '-'.join(w for w in words if w) or 'audio-transcript'
+                            new_filename = f'{safe_title[:40]}.txt'
                             
                             async with aiosqlite.connect(DB_PATH) as db:
                                 await db.execute("CREATE TABLE IF NOT EXISTS audio_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, transcript TEXT, filename TEXT, created_at INTEGER)")
