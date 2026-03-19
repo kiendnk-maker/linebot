@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import httpx
+import asyncio
 import aiosqlite
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
@@ -213,19 +214,31 @@ async def handle_workspace_command(cmd: str, arg: str, user_id: str):
 
             # Fetch metadata for all messages, then deduplicate by sender
             fetched: list[dict] = []
-            for m in mail_list:
+            sem = asyncio.Semaphore(15)  # Giới hạn 15 luồng đồng thời để chống Rate Limit
+
+            async def fetch_single_mail(m: dict) -> dict:
                 m_id = m["id"]
-                det_resp = await http.get(
-                    f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From",
-                    headers=headers,
-                )
-                h_data = det_resp.json().get("payload", {}).get("headers", [])
-                subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
-                frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
-                sender_email = re.search(r'<(.+?)>', frm)
-                sender_key = sender_email.group(1).lower() if sender_email else frm.lower().strip()
-                sender_name = re.sub(r'<.*?>', '', frm).strip()[:20]
-                fetched.append({"id": m_id, "subject": subj, "sender_name": sender_name, "sender_key": sender_key})
+                async with sem:
+                    try:
+                        det_resp = await http.get(
+                            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m_id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From",
+                            headers=headers,
+                            timeout=15.0
+                        )
+                        h_data = det_resp.json().get("payload", {}).get("headers", [])
+                        subj = next((h["value"] for h in h_data if h["name"] == "Subject"), "(No Subject)")
+                        frm = next((h["value"] for h in h_data if h["name"] == "From"), "Unknown")
+                        sender_email = re.search(r'<(.+?)>', frm)
+                        sender_key = sender_email.group(1).lower() if sender_email else frm.lower().strip()
+                        sender_name = re.sub(r'<.*?>', '', frm).strip()[:20]
+                        return {"id": m_id, "subject": subj, "sender_name": sender_name, "sender_key": sender_key}
+                    except Exception:
+                        return None
+
+            # Phóng tất cả các luồng cùng một lúc và gom kết quả
+            tasks = [fetch_single_mail(m) for m in mail_list]
+            results = await asyncio.gather(*tasks)
+            fetched = [res for res in results if res is not None]
 
             # Deduplicate: keep only the latest email per sender
             seen_senders: set[str] = set()

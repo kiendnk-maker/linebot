@@ -70,11 +70,15 @@ async def embed_text(text: str) -> list[float]:
     raise EmbedError("Gemini API unavailable after 3 retries")
 
 async def embed_batch(texts: list[str]) -> list[list[float]]:
-    result = []
-    for text in texts:
-        result.append(await embed_text(text))
-        await asyncio.sleep(0.5)
-    return result
+    sem = asyncio.Semaphore(5)  # Giới hạn 5 luồng đồng thời gọi API Gemini
+    
+    async def embed_with_sem(text: str) -> list[float]:
+        async with sem:
+            return await embed_text(text)
+            
+    # Xử lý đồng thời tất cả các chunk
+    tasks = [embed_with_sem(t) for t in texts]
+    return await asyncio.gather(*tasks)
 
 def chunk_text(text: str) -> list[str]:
     chunks: list[str] = []
