@@ -12,7 +12,7 @@ from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
 from database import DB_PATH, get_user_model, set_user_model, get_user_max_tokens, set_user_max_tokens, get_user_profile, save_user_profile, get_reminders, cancel_reminder, save_reminder
 from google_workspace import handle_workspace_command
 from rag_core import process_file_upload, list_rag_docs, delete_rag_doc, clear_rag_docs
-from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow, process_audio_transcript_agent
+from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow
 
 def _models_list_text() -> str:
     prod_lines: list[str] = []
@@ -306,7 +306,27 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
         # --- Summarize (choice 1 or 3) ---
         if choice in ["1", "3"]:
-            summary = await process_audio_transcript_agent(transcript[:15000])
+            agent_prompt = f"""Bạn là một trợ lý phân tích dữ liệu và thư ký chuyên nghiệp, có khả năng đọc hiểu, tổng hợp thông tin xuất sắc.
+
+Nhiệm vụ: Đọc bản ghi âm (transcript) được cung cấp ở phần cuối và tạo ra một bản tóm tắt toàn diện, cấu trúc rõ ràng. Bản ghi âm này có thể chứa các từ ngữ lặp lại, câu nói ngập ngừng hoặc lỗi diễn đạt do văn phong nói. Hãy bỏ qua những phần "nhiễu" này và chỉ tập trung trích xuất nội dung cốt lõi.
+
+Yêu cầu định dạng đầu ra:
+Vui lòng trình bày bản tóm tắt bằng Markdown với các mục sau:
+- Tổng quan (Executive Summary): 2-3 câu khái quát toàn bộ chủ đề và mục đích chính của bản ghi âm.
+- Các điểm nhấn chính (Key Takeaways): Liệt kê 3-5 luận điểm hoặc ý tưởng quan trọng nhất được thảo luận (sử dụng gạch đầu dòng).
+- Thông tin chi tiết (Important Details): Ghi chú lại các số liệu cụ thể, định nghĩa khái niệm, hoặc các lập luận quan trọng hỗ trợ cho các điểm nhấn chính ở trên.
+- Hành động tiếp theo/Kết luận (Action Items/Conclusion): Liệt kê các công việc cần làm tiếp theo (ai làm gì, bao giờ xong - nếu có) hoặc kết luận cuối cùng của cuộc trò chuyện.
+
+Nguyên tắc nghiêm ngặt:
+1. Giữ giọng văn khách quan, học thuật và chuyên nghiệp.
+2. Tuyệt đối không tự suy diễn hoặc bịa đặt thêm thông tin không có trong bản ghi.
+3. Trình bày ngắn gọn, tránh dài dòng.
+
+Nội dung bản ghi âm cần tóm tắt:
+{transcript[:15000]}"""
+            
+            # Đẩy thẳng qua hệ thống Agent Tự Trị
+            summary = await run_agentic_loop(user_id, agent_prompt)
 
         # --- RAG (choice 2 or 3) ---
         if choice in ["2", "3"]:
