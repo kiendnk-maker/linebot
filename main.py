@@ -85,6 +85,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
 # --- LUỒNG XỬ LÝ SỰ KIỆN ---
 async def process_event(event: MessageEvent) -> None:
+    try:
+        await _process_event_inner(event)
+    except Exception as e:
+        logger.exception(f"CRASH in process_event | user={event.source.user_id}")
+        try:
+            async with AsyncApiClient(line_config) as api_client:
+                line_api = AsyncMessagingApi(api_client)
+                await line_api.push_message(PushMessageRequest(
+                    to=event.source.user_id,
+                    messages=[TextMessage(text=f"⚠️ Lỗi hệ thống: {str(e)[:150]}")]
+                ))
+        except Exception:
+            pass
+
+
+async def _process_event_inner(event: MessageEvent) -> None:
     user_id = event.source.user_id
 
     async with AsyncApiClient(line_config) as api_client:
@@ -265,32 +281,40 @@ async def process_event(event: MessageEvent) -> None:
 
         # ── TRẢ LỜI NGƯỜI DÙNG ──
         if reply:
-            if isinstance(reply, dict):
-                qr_data = reply.get("quickReply")
-                qr_items = []
-                if qr_data:
-                    for item in qr_data.get("items", []):
-                        act = item.get("action", {})
-                        qr_items.append(QuickReplyItem(action=MessageAction(label=act.get("label", ""), text=act.get("text", ""))))
-                quick_reply_obj = QuickReply(items=qr_items) if qr_items else None
+            try:
+                if isinstance(reply, dict):
+                    qr_data = reply.get("quickReply")
+                    qr_items = []
+                    if qr_data:
+                        for item in qr_data.get("items", []):
+                            act = item.get("action", {})
+                            qr_items.append(QuickReplyItem(action=MessageAction(label=act.get("label", ""), text=act.get("text", ""))))
+                    quick_reply_obj = QuickReply(items=qr_items) if qr_items else None
 
-                if reply.get("type") == "flex":
-                    flex_msg = FlexMessage(
-                        alt_text=reply.get("altText", "Hộp thư Flex Message"),
-                        contents=FlexContainer.from_dict(reply.get("contents"))
-                    )
-                    if quick_reply_obj:
-                        flex_msg.quick_reply = quick_reply_obj
-                    messages = [flex_msg]
+                    if reply.get("type") == "flex":
+                        flex_msg = FlexMessage(
+                            alt_text=reply.get("altText", "Flex Message"),
+                            contents=FlexContainer.from_dict(reply.get("contents"))
+                        )
+                        if quick_reply_obj:
+                            flex_msg.quick_reply = quick_reply_obj
+                        messages = [flex_msg]
+                    else:
+                        text_content = strip_markdown(reply.get("text", ""))
+                        chunks = _split_reply(text_content)
+                        messages = [TextMessage(text=c) for c in chunks]
+                        if quick_reply_obj and messages:
+                            messages[-1].quick_reply = quick_reply_obj
+
+                    await line_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=messages))
                 else:
-                    text_content = strip_markdown(reply.get("text", ""))
-                    chunks = _split_reply(text_content)
-                    messages = [TextMessage(text=c) for c in chunks]
-                    if quick_reply_obj and messages:
-                        messages[-1].quick_reply = quick_reply_obj
-                
-                await line_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=messages))
-            else:
-                reply = strip_markdown(reply)
-                chunks = _split_reply(reply)
-                await line_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=c) for c in chunks]))
+                    reply_str = strip_markdown(reply)
+                    chunks = _split_reply(reply_str)
+                    await line_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=c) for c in chunks]))
+            except Exception:
+                try:
+                    fb = reply if isinstance(reply, str) else reply.get("text", str(reply))
+                    fb = strip_markdown(fb)[:4990]
+                    await line_api.push_message(PushMessageRequest(to=user_id, messages=[TextMessage(text=fb)]))
+                except Exception as pe:
+                    logger.error(f"Push fallback failed | user={user_id} | {pe}")
