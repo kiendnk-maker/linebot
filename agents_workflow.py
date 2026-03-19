@@ -165,7 +165,7 @@ async def process_audio_transcript_agent(transcript: str) -> str:
     
     try:
         resp = await client.chat.completions.create(
-            model="mixtral-8x7b-32768",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": AUDIO_AGENT_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content}
