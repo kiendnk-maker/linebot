@@ -1,3 +1,4 @@
+from groq import AsyncGroq
 import os
 import json
 import logging
@@ -87,6 +88,7 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
     ]
     
     max_iterations = 5 # Giới hạn số vòng lặp để tránh treo hệ thống
+    client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY", ""))
     
     for iteration in range(max_iterations):
         try:
