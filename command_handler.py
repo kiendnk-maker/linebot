@@ -83,6 +83,11 @@ async def handle_command(user_id: str, text: str) -> str | None:
             await db.commit()
         return "🗑 對話記錄已清除。"
 
+    # ── MONEY TRACKER ──────────────────────────────────────────────────────
+    if cmd == "mn":
+        from money_tracker import handle_money_command
+        return await handle_money_command(user_id, arg)
+
     # ── MODELS ─────────────────────────────────────────────────────────────
     if cmd == "models":
         return _models_list_text()
