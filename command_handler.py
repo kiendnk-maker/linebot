@@ -12,7 +12,7 @@ from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
 from database import DB_PATH, get_user_model, set_user_model, get_user_max_tokens, set_user_max_tokens, get_user_profile, save_user_profile, get_reminders, cancel_reminder, save_reminder
 from google_workspace import handle_workspace_command
 from rag_core import process_file_upload, list_rag_docs, delete_rag_doc, clear_rag_docs
-from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow
+from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow, process_audio_transcript_agent
 
 def _models_list_text() -> str:
     prod_lines: list[str] = []
@@ -306,42 +306,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
         # --- Summarize (choice 1 or 3) ---
         if choice in ["1", "3"]:
-            from groq import AsyncGroq
-            import httpx as _httpx
-            _groq_key = os.environ.get("GROQ_API_KEY", "")
-            _summary_model = MODEL_REGISTRY["gpt120b"]["model_id"]
-
-            prompt = (
-                "Phân tích nội dung bóc băng dưới đây. VÀO THẲNG VẤN ĐỀ.\n\n"
-                "🎯 TỔNG QUAN:\n"
-                "Tóm tắt cốt lõi trong 2-3 câu. Bối cảnh và mục đích cuộc trao đổi.\n\n"
-                "📌 PHÂN TÍCH CHI TIẾT:\n"
-                "Chia thành các mảng chính. Với mỗi mảng: luận điểm → bằng chứng → ý nghĩa.\n\n"
-                "💡 DỮ LIỆU QUAN TRỌNG:\n"
-                "Mọi con số, ngày tháng, tên riêng, thuật ngữ, quy định cụ thể.\n\n"
-                "🚀 HÀNH ĐỘNG:\n"
-                "Việc cần làm (ai, làm gì, deadline). 2-3 lời khuyên thực tế.\n\n"
-                "---\n"
-                f"{transcript[:15000]}"
-            )
-
-            # Direct Groq call with max_tokens=3000, temp=0.3, bypass call_groq_text limit
-            async with _httpx.AsyncClient() as _http:
-                _client = AsyncGroq(api_key=_groq_key, http_client=_http)
-                try:
-                    _resp = await _client.chat.completions.create(
-                        model=_summary_model,
-                        messages=[
-                            {"role": "system", "content": "Bạn là chuyên gia phân tích. TUYỆT ĐỐI KHÔNG mào đầu, KHÔNG chào hỏi, KHÔNG nói 'Tôi sẽ...'. Bắt đầu NGAY bằng 🎯."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.3,
-                        max_tokens=3000,
-                        reasoning_effort="low",
-                    )
-                    summary = (_resp.choices[0].message.content or "").strip()
-                except Exception as e:
-                    summary = f"⚠️ Lỗi phân tích: {str(e)[:100]}"
+            summary = await process_audio_transcript_agent(transcript[:15000])
 
         # --- RAG (choice 2 or 3) ---
         if choice in ["2", "3"]:

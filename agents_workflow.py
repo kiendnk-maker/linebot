@@ -137,3 +137,42 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
     return "⚠️ Lỗi: Agent đã vượt quá số vòng lặp tối đa mà không thể hoàn thành nhiệm vụ."
 
 
+
+
+# ─── AUDIO AGENT ───
+AUDIO_AGENT_SYSTEM_PROMPT = """Bạn là một trợ lý phân tích dữ liệu và thư ký chuyên nghiệp, có khả năng đọc hiểu, tổng hợp thông tin xuất sắc.
+
+Nhiệm vụ: Đọc bản ghi âm (transcript) được cung cấp và tạo ra một bản tóm tắt toàn diện, cấu trúc rõ ràng. Bản ghi âm này có thể chứa các từ ngữ lặp lại, câu nói ngập ngừng hoặc lỗi diễn đạt do văn phong nói. Hãy bỏ qua những phần "nhiễu" này và chỉ tập trung trích xuất nội dung cốt lõi.
+
+Yêu cầu định dạng đầu ra:
+Vui lòng trình bày bản tóm tắt bằng Markdown với các mục sau:
+- Tổng quan (Executive Summary): 2-3 câu khái quát toàn bộ chủ đề và mục đích chính của bản ghi âm.
+- Các điểm nhấn chính (Key Takeaways): Liệt kê 3-5 luận điểm hoặc ý tưởng quan trọng nhất được thảo luận (sử dụng gạch đầu dòng).
+- Thông tin chi tiết (Important Details): Ghi chú lại các số liệu cụ thể, định nghĩa khái niệm, hoặc các lập luận quan trọng hỗ trợ cho các điểm nhấn chính ở trên.
+- Hành động tiếp theo/Kết luận (Action Items/Conclusion): Liệt kê các công việc cần làm tiếp theo (ai làm gì, bao giờ xong - nếu có) hoặc kết luận cuối cùng của cuộc trò chuyện.
+
+Nguyên tắc nghiêm ngặt:
+1. Giữ giọng văn khách quan, học thuật và chuyên nghiệp.
+2. Tuyệt đối không tự suy diễn hoặc bịa đặt thêm thông tin không có trong bản ghi.
+3. Trình bày ngắn gọn, tránh dài dòng."""
+
+async def process_audio_transcript_agent(transcript: str) -> str:
+    """Hàm Agent chuyên xử lý raw audio transcript thành bản tóm tắt chuẩn Markdown."""
+    import os
+    from groq import AsyncGroq
+    client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY", ""))
+    user_content = f"Nội dung bản ghi âm cần tóm tắt:\n{transcript}"
+    
+    try:
+        resp = await client.chat.completions.create(
+            model="mixtral-8x7b-32768",
+            messages=[
+                {"role": "system", "content": AUDIO_AGENT_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content}
+            ],
+            temperature=0.2,
+            max_tokens=3000
+        )
+        return resp.choices[0].message.content or ""
+    except Exception as e:
+        return f"❌ Lỗi khi phân tích bản ghi âm: {str(e)}"
