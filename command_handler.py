@@ -1,7 +1,5 @@
 import re
-import json
 import aiosqlite
-import httpx
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -48,9 +46,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
     if ws_reply:
         return ws_reply
 
-    # ── CLEAR ──────────────────────────────────────────────────────────────
-
-
+    # ── AI AGENTS & WORKFLOWS ──────────────────────────────────────────────
     if cmd == "pro":
         if not arg:
             return "⚠️ Vui lòng nhập yêu cầu phức tạp. Ví dụ: /pro Phân tích ưu nhược điểm của việc học Thạc sĩ tại Đài Loan"
@@ -67,22 +63,13 @@ async def handle_command(user_id: str, text: str) -> str | None:
             return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /dev Viết hàm Python tính dãy Fibonacci"
         return await run_multi_agent_workflow(user_id, arg)
 
-
-
-
-
-    # ── /block & /unblock — Mail keyword filter ────────────────────────────
-
-
-
-
-
+    # ── PREFERENCES & SYSTEM ───────────────────────────────────────────────
     if cmd == "vi":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("INSERT INTO user_settings (user_id, model_key, language) VALUES (?, 'llama70b', ?) ON CONFLICT(user_id) DO UPDATE SET language=?", (user_id, "vi", "vi"))
             await db.commit()
         return "🇻🇳 Đã chuyển đổi ngôn ngữ sang Tiếng Việt. Từ giờ tôi sẽ trả lời bạn 100% bằng Tiếng Việt."
-        
+
     if cmd == "tw":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("INSERT INTO user_settings (user_id, model_key, language) VALUES (?, 'llama70b', ?) ON CONFLICT(user_id) DO UPDATE SET language=?", (user_id, "tw", "tw"))
@@ -324,7 +311,7 @@ Nguyên tắc nghiêm ngặt:
 
 Nội dung bản ghi âm cần tóm tắt:
 {transcript[:15000]}"""
-            
+
             # Đẩy thẳng qua hệ thống Agent Tự Trị
             summary = await run_agentic_loop(user_id, agent_prompt)
 
@@ -438,4 +425,3 @@ Nội dung bản ghi âm cần tóm tắt:
         return f"✅ 已切換至 {cfg['display']}。\n輸入 /auto 返回自動模式。"
 
     return f"❓ 指令 /{cmd} 無效。請輸入 /models 查看。"
-

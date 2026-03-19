@@ -2,10 +2,6 @@ from groq import AsyncGroq
 import os
 import json
 import logging
-import re
-import time
-from datetime import datetime
-
 # Import không gian bộ nhớ của ứng dụng gốc
 import main
 from tools_api import AVAILABLE_TOOLS, AGENT_TOOLS
@@ -135,8 +131,3 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
             return f"⚠️ Lỗi Agent: {str(e)}"
             
     return "⚠️ Lỗi: Agent đã vượt quá số vòng lặp tối đa mà không thể hoàn thành nhiệm vụ."
-
-
-
-
-# ─── AUDIO AGENT ───
