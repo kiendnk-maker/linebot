@@ -12,6 +12,9 @@ from database import DB_PATH, get_user_profile, get_user_model, get_user_max_tok
 logger = logging.getLogger(__name__)
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
+# Khởi tạo Connection Pool Toàn cục
+global_groq_client = AsyncGroq(api_key=GROQ_API_KEY, timeout=20.0, max_retries=2)
+
 WHISPER_MODEL   = "whisper-large-v3-turbo"
 
 SUMMARY_TRIGGER = 20
@@ -130,8 +133,8 @@ def _needs_realtime(text: str) -> bool:
     return any(kw in text_lower for kw in _REALTIME_KEYWORDS)
 
 async def classify_query(user_text: str) -> str:
-    async with httpx.AsyncClient() as http:
-        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+    if True:
+        client = global_groq_client
         try:
             resp = await client.chat.completions.create(
                 model=MODEL_REGISTRY[CLASSIFIER_MODEL_KEY]["model_id"],
@@ -168,6 +171,16 @@ async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
         return "llama70b", MODEL_REGISTRY["llama70b"]["model_id"]
 
     # Priority 4: classifier
+    text_lower = user_text.lower()
+    # Fast-Path 1: Toán học -> Auto Qwen
+    if any(kw in text_lower for kw in {"cộng", "trừ", "nhân", "chia", "tính", "+", "-", "*", "/", "đạo hàm", "tích phân"}):
+        return "qwen", MODEL_REGISTRY["qwen"]["model_id"]
+        
+    # Fast-Path 2: Dịch thuật -> Auto LLaMA 70B
+    if any(kw in text_lower for kw in {"dịch", "translate", "tiếng anh", "tiếng trung", "tiếng nhật"}):
+        return "llama70b", MODEL_REGISTRY["llama70b"]["model_id"]
+        
+    # Nếu không khớp Regex thì mới gọi Classifier
     routed_key = await classify_query(user_text)
     return routed_key, MODEL_REGISTRY[routed_key]["model_id"]
 
@@ -202,8 +215,8 @@ async def maybe_summarize(user_id: str) -> None:
         f"Hội thoại mới:\n{history_text}"
     )
 
-    async with httpx.AsyncClient() as http:
-        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+    if True:
+        client = global_groq_client
         try:
             resp = await client.chat.completions.create(
                 model=MODEL_REGISTRY["llama8b"]["model_id"],
@@ -305,8 +318,8 @@ async def call_groq_text(
         1500 if model_key in ("qwen", "gpt120b", "gpt20b") else 800
     )
 
-    async with httpx.AsyncClient() as http:
-        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+    if True:
+        client = global_groq_client
         try:
             resp = await client.chat.completions.create(
                 model=model_id,
@@ -336,8 +349,8 @@ async def call_groq_text(
 async def call_groq_vision(image_b64: str) -> str:
     model_id = MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"]
     system   = get_system_prompt(VISION_MODEL_KEY)
-    async with httpx.AsyncClient() as http:
-        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+    if True:
+        client = global_groq_client
         try:
             resp = await client.chat.completions.create(
                 model=model_id,
@@ -368,8 +381,8 @@ async def call_groq_vision(image_b64: str) -> str:
             return f"⚠️ 視覺錯誤: {str(e)[:150]}"
 
 async def call_groq_whisper(audio_bytes: bytes) -> str:
-    async with httpx.AsyncClient() as http:
-        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+    if True:
+        client = global_groq_client
         try:
             result = await client.audio.transcriptions.create(
                 file=("audio.m4a", audio_bytes),
@@ -381,8 +394,8 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
 
 async def clean_transcript(transcript: str) -> str:
     """Fix Whisper errors via gpt120b (temperature=0.0, max_tokens=300)."""
-    async with httpx.AsyncClient() as http:
-        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+    if True:
+        client = global_groq_client
         try:
             resp = await client.chat.completions.create(
                 model=MODEL_REGISTRY["gpt120b"]["model_id"],

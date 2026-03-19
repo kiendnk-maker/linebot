@@ -9,3 +9,4 @@ chromadb
 pdfplumber
 google-genai
 python-docx
+cachetools

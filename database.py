@@ -2,6 +2,10 @@ import os
 import aiosqlite
 import time
 import logging
+from cachetools import TTLCache
+
+user_model_cache = TTLCache(maxsize=1000, ttl=600)
+tokens_cache = TTLCache(maxsize=1000, ttl=600)
 
 logger = logging.getLogger(__name__)
 
@@ -87,19 +91,21 @@ async def save_reminder(
 
 # --- CÁC HÀM ĐƯỢC BÓC TÁCH TỪ MAIN.PY ---
 async def get_user_model(user_id: str) -> str:
+    if user_id in user_model_cache: return user_model_cache[user_id]
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT model_key FROM user_settings WHERE user_id = ?", (user_id,)
-        ) as cur:
+        async with db.execute("SELECT model_key FROM user_settings WHERE user_id = ?", (user_id,)) as cur:
             row = await cur.fetchone()
     key = row[0] if row else "llama70b"
     try:
         from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
-        return key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY
+        ans = key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY
     except ImportError:
-        return key
+        ans = key
+    user_model_cache[user_id] = ans
+    return ans
 
 async def set_user_model(user_id: str, model_key: str) -> None:
+    user_model_cache.pop(user_id, None)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO user_settings (user_id, model_key) VALUES (?, ?) "
@@ -117,6 +123,7 @@ async def get_user_max_tokens(user_id: str) -> int:
     return row[0] if row else 800
 
 async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
+    tokens_cache.pop(user_id, None)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO user_settings2 (user_id, max_tokens) VALUES (?, ?) "
