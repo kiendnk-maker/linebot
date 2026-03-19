@@ -29,7 +29,7 @@ from linebot.v3.webhooks import (
 # --- MODULES TỰ VIẾT ---
 from database import DB_PATH, init_db, save_message
 from llm_core import (
-    MODEL_REGISTRY, resolve_model, get_history_with_summary, maybe_summarize,
+    MODEL_REGISTRY, DEFAULT_MODEL_KEY, resolve_model, get_history_with_summary, maybe_summarize,
     call_groq_text, call_groq_vision, call_groq_whisper, clean_transcript,
     strip_markdown, _split_reply
 )

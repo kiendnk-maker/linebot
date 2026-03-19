@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo("Asia/Taipei")
 
 import main
+from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
 from database import DB_PATH, get_user_model, set_user_model, get_user_max_tokens, set_user_max_tokens, get_user_profile, save_user_profile, get_reminders, cancel_reminder, save_reminder
 from google_workspace import handle_workspace_command
 from rag_core import process_file_upload, list_rag_docs, delete_rag_doc, clear_rag_docs
@@ -16,7 +17,7 @@ from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_
 def _models_list_text() -> str:
     prod_lines: list[str] = []
     prev_lines: list[str] = []
-    for key, cfg in main.MODEL_REGISTRY.items():
+    for key, cfg in MODEL_REGISTRY.items():
         icon = {"vision": "👁", "reasoning": "🧠", "text": "💬"}.get(cfg["type"], "💬")
         line = f"{icon} /{key} — {cfg['display']}\n   {cfg['note']}"
         if cfg["tier"] == "production":
@@ -101,15 +102,15 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
     # ── AUTO ───────────────────────────────────────────────────────────────
     if cmd == "auto":
-        await set_user_model(user_id, main.DEFAULT_MODEL_KEY)
+        await set_user_model(user_id, DEFAULT_MODEL_KEY)
         return "🤖 已切換至自動選擇模型模式。"
 
     # ── MODEL ──────────────────────────────────────────────────────────────
     if cmd == "model":
         if not arg:
             key  = await get_user_model(user_id)
-            cfg  = main.MODEL_REGISTRY[key]
-            mode = "自動" if key == main.DEFAULT_MODEL_KEY else "手動"
+            cfg  = MODEL_REGISTRY[key]
+            mode = "自動" if key == DEFAULT_MODEL_KEY else "手動"
             return (
                 f"🤖 目前模型：{cfg['display']}\n"
                 f"   Tier：{cfg['tier']} | 模式：{mode}\n"
@@ -118,10 +119,10 @@ async def handle_command(user_id: str, text: str) -> str | None:
                 "輸入 /auto 返回自動模式。"
             )
         target = arg.lower()
-        if target not in main.MODEL_REGISTRY:
+        if target not in MODEL_REGISTRY:
             return f"❌ /{target} 不存在。\n請輸入 /models 查看清單。"
         await set_user_model(user_id, target)
-        return f"✅ 已切換至 {main.MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
+        return f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
 
     # ── LONG / SHORT / TOKENS ──────────────────────────────────────────────
     if cmd == "long":
@@ -308,7 +309,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
             from groq import AsyncGroq
             import httpx as _httpx
             _groq_key = os.environ.get("GROQ_API_KEY", "")
-            _summary_model = main.MODEL_REGISTRY["gpt120b"]["model_id"]
+            _summary_model = MODEL_REGISTRY["gpt120b"]["model_id"]
 
             prompt = (
                 "Phân tích nội dung bóc băng dưới đây. VÀO THẲNG VẤN ĐỀ.\n\n"
@@ -439,9 +440,9 @@ async def handle_command(user_id: str, text: str) -> str | None:
         )
 
     # ── MODEL SHORTCUT ─────────────────────────────────────────────────────
-    if cmd in main.MODEL_REGISTRY:
+    if cmd in MODEL_REGISTRY:
         await set_user_model(user_id, cmd)
-        cfg = main.MODEL_REGISTRY[cmd]
+        cfg = MODEL_REGISTRY[cmd]
         if arg:
             answer = await main.call_groq_text(
                 [{"role": "user", "content": arg}],
