@@ -4,60 +4,79 @@ import time
 import logging
 from cachetools import TTLCache
 
+async def init_db() -> None:
+    from tracker_core import init_tracker_db
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('''CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            role TEXT,
+            content TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS user_settings (
+            user_id TEXT PRIMARY KEY,
+            model_key TEXT DEFAULT 'auto',
+            auto_mode INTEGER DEFAULT 1
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS summary (
+            user_id TEXT PRIMARY KEY,
+            content TEXT,
+            last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            time TEXT,
+            message TEXT,
+            status TEXT DEFAULT 'pending'
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS user_profile (
+            user_id TEXT PRIMARY KEY,
+            name TEXT,
+            job TEXT,
+            preferences TEXT,
+            last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS rag_docs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            filename TEXT,
+            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS audio_cache (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            transcript TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS google_auth (
+            user_id TEXT PRIMARY KEY,
+            credentials TEXT
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS mail_cache (
+            msg_id TEXT PRIMARY KEY,
+            user_id TEXT,
+            subject TEXT,
+            sender TEXT,
+            snippet TEXT,
+            date_str TEXT,
+            is_read INTEGER DEFAULT 0,
+            has_attachment INTEGER DEFAULT 0,
+            full_body TEXT
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS mail_block (
+            user_id TEXT,
+            sender_email TEXT,
+            PRIMARY KEY (user_id, sender_email)
+        )''')
+        await db.commit()
 user_model_cache = TTLCache(maxsize=1000, ttl=600)
 tokens_cache = TTLCache(maxsize=1000, ttl=600)
 
 logger = logging.getLogger(__name__)
 
 DB_PATH                   = os.environ.get("DB_PATH", "chat_history.db")
-
-
-async def init_db() -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS history "
-            "(id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            " user_id TEXT, role TEXT, content TEXT)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS user_settings "
-            "(user_id TEXT PRIMARY KEY, model_key TEXT NOT NULL)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS user_settings2 "
-            "(user_id TEXT PRIMARY KEY, max_tokens INTEGER NOT NULL DEFAULT 800)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS summary "
-            "(user_id TEXT PRIMARY KEY, content TEXT, updated_at INTEGER)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS reminders "
-            "(id        INTEGER PRIMARY KEY AUTOINCREMENT, "
-            " user_id   TEXT    NOT NULL, "
-            " message   TEXT    NOT NULL, "
-            " fire_at   INTEGER NOT NULL, "
-            " repeat    TEXT    DEFAULT NULL, "
-            " done      INTEGER DEFAULT 0)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS user_profile "
-            "(user_id TEXT PRIMARY KEY, "
-            " name TEXT, occupation TEXT, learning TEXT, notes TEXT)"
-        )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS rag_docs "
-            "(id          INTEGER PRIMARY KEY AUTOINCREMENT, "
-            " user_id     TEXT    NOT NULL, "
-            " filename    TEXT    NOT NULL, "
-            " chunk_count INTEGER NOT NULL, "
-            " uploaded_at INTEGER NOT NULL)"
-        )
-        await db.commit()
-        await init_tracker_db()
-        await db.execute("CREATE TABLE IF NOT EXISTS audio_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, transcript TEXT, filename TEXT, created_at INTEGER)")
-        await db.commit()
-        await init_tracker_db()
 
 
 async def save_message(user_id: str, role: str, content: str) -> None:
@@ -67,19 +86,7 @@ async def save_message(user_id: str, role: str, content: str) -> None:
             (user_id, role, content),
         )
         await db.commit()
-        await init_tracker_db()
-
-
 from tracker_core import init_tracker_db
-
-async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute('CREATE TABLE IF NOT EXISTS google_auth (user_id TEXT PRIMARY KEY, refresh_token TEXT)')
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_cache (user_id TEXT, idx INTEGER, mail_id TEXT, PRIMARY KEY (user_id, idx))')
-        await db.execute('CREATE TABLE IF NOT EXISTS mail_block (user_id TEXT, keyword TEXT, PRIMARY KEY (user_id, keyword))')
-        await db.commit()
-        await init_tracker_db()
-
 
 async def save_reminder(
     user_id: str, message: str, fire_at: int, repeat: str | None = None
@@ -90,7 +97,6 @@ async def save_reminder(
             (user_id, message, fire_at, repeat),
         )
         await db.commit()
-        await init_tracker_db()
         return cur.lastrowid  # type: ignore[return-value]
 
 
@@ -120,8 +126,6 @@ async def set_user_model(user_id: str, model_key: str) -> None:
             (user_id, model_key),
         )
         await db.commit()
-        await init_tracker_db()
-
 async def get_user_max_tokens(user_id: str) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
@@ -139,8 +143,6 @@ async def set_user_max_tokens(user_id: str, max_tokens: int) -> None:
             (user_id, max_tokens),
         )
         await db.commit()
-        await init_tracker_db()
-
 async def get_user_profile(user_id: str) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
@@ -168,8 +170,6 @@ async def save_user_profile(user_id: str, **kwargs) -> None:
                     (value, user_id),
                 )
         await db.commit()
-        await init_tracker_db()
-
 async def get_history_raw(user_id: str, limit: int = 30) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
@@ -205,8 +205,6 @@ async def save_summary(user_id: str, content: str) -> None:
             (user_id, content, int(time.time())),
         )
         await db.commit()
-        await init_tracker_db()
-
 async def get_reminders(user_id: str) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
@@ -224,6 +222,5 @@ async def cancel_reminder(user_id: str, reminder_id: int) -> bool:
             (reminder_id, user_id),
         )
         await db.commit()
-        await init_tracker_db()
         return cur.rowcount > 0
 

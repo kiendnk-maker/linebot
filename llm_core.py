@@ -10,21 +10,6 @@ from openai import AsyncOpenAI
 from prompts import get_system_prompt
 from database import DB_PATH, get_user_profile, get_user_model, get_user_max_tokens, count_history, get_history_raw, get_summary, save_summary
 
-logger = logging.getLogger(__name__)
-
-MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
-
-# Global connection pool
-global_groq_client = AsyncOpenAI(api_key=os.environ.get("MISTRAL_API_KEY", ""), base_url="https://api.mistral.ai/v1")
-WHISPER_MODEL = "whisper-large-v3-turbo"
-SUMMARY_TRIGGER = 20
-
-# ═══════════════════════════════════════════════════════════════
-# FIX: Single MODEL_REGISTRY with UNIQUE keys
-# Previously had duplicate "small"/"large" keys → Python keeps
-# only the last value, breaking all routing logic.
-# Now each model has a unique key.
-# ═══════════════════════════════════════════════════════════════
 MODEL_REGISTRY: dict[str, dict] = {
     "small": {
         "model_id": "mistral-small-latest",
@@ -32,7 +17,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "tier": "production",
         "display": "Mistral Small 4",
         "ctx": 131_072,
-        "note": "Nhanh, rẻ — dùng cho classifier và chat đơn giản",
+        "note": "Nhanh, rẻ — classifier và chat đơn giản",
     },
     "large": {
         "model_id": "mistral-large-latest",
@@ -59,6 +44,31 @@ MODEL_REGISTRY: dict[str, dict] = {
         "note": "Model duy nhất hỗ trợ hình ảnh",
     },
 }
+
+ROUTE_MAP = {
+    "simple": "small",
+    "creative": "large",
+    "reasoning": "large",
+    "hard": "large",
+    "search": "small",
+}
+
+logger = logging.getLogger(__name__)
+
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+
+# Global connection pool
+global_groq_client = AsyncOpenAI(api_key=os.environ.get("MISTRAL_API_KEY", ""), base_url="https://api.mistral.ai/v1")
+WHISPER_MODEL = "whisper-large-v3-turbo"
+SUMMARY_TRIGGER = 20
+
+# ═══════════════════════════════════════════════════════════════
+# FIX: Single MODEL_REGISTRY with UNIQUE keys
+# Previously had duplicate "small"/"large" keys → Python keeps
+# only the last value, breaking all routing logic.
+# Now each model has a unique key.
+# ═══════════════════════════════════════════════════════════════
+
 
 DEFAULT_MODEL_KEY = "large"
 VISION_MODEL_KEY = "vision"
