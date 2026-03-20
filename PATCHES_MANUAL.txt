@@ -1,0 +1,17 @@
+--- command_handler.py PATCH ---
+Only ONE line needs to change. In the /nuke block (~line 109), DELETE this line:
+
+        from database import DB_PATH
+
+The module-level import at the top of the file already provides DB_PATH.
+This re-import inside the function shadows it for the ENTIRE function,
+causing UnboundLocalError on every other command that uses DB_PATH.
+
+--- main.py PATCH ---
+Find this line (~line 233 in audio pipeline):
+
+    model_id=main.MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b"
+
+Replace with:
+
+    model_id=main.MODEL_REGISTRY["small"]["model_id"], model_key="small"
