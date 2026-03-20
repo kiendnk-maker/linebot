@@ -81,6 +81,26 @@ async def handle_command(user_id: str, text: str) -> str | None:
     if cmd == "usage":
         report = await get_usage_report()
         return report
+    
+    if cmd == "nuke":
+        try:
+            import sqlite3
+            from database import DB_PATH
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = cur.fetchall()
+            dropped = 0
+            for (t_name,) in tables:
+                if any(x in t_name.lower() for x in ['rag', 'chunk', 'vector', 'embed', 'collection']):
+                    cur.execute(f"DROP TABLE IF EXISTS {t_name}")
+                    dropped += 1
+            conn.commit()
+            conn.close()
+            return f"💥 BOOM! Đã nổ tung {dropped} bảng Vector DB (3072-dim) cũ trên Server! Hệ thống RAG đã sạch sẽ, hãy gửi file mới để test."
+        except Exception as e:
+            return f"⚠️ Lỗi kích nổ DB: {e}"
+
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
