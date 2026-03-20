@@ -57,3 +57,5 @@ def get_system_prompt(model_key: str) -> str:
     }
     suffix = suffix_map.get(model_key, "")
     return SYSTEM_PROMPT + suffix
+
+# Fixed Indentation for Python 3.12
