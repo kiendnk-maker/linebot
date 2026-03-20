@@ -433,7 +433,7 @@ async def clean_transcript(transcript: str) -> str:
     """Fix Whisper errors using Large model."""
     try:
         resp = await mistral_client.chat.completions.create(
-            model=MODEL_REGISTRY["large"]["model_id"],
+            model=MODEL_REGISTRY["small"]["model_id"],
             messages=[{
                 "role": "user",
                 "content": (
