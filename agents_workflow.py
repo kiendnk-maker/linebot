@@ -180,11 +180,18 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
 
     return "⚠️ Agent đã vượt quá số vòng lặp tối đa."
 
-
 async def run_debate(user_id: str, topic: str, rounds: int = 2) -> str:
-    from llm_core import call_mistral_text, MODEL_REGISTRY
+    import os
+    from openai import AsyncOpenAI
+    from llm_core import MODEL_REGISTRY
     
-    # AI 1 dùng Large, AI 2 dùng Magistral (nếu có, không thì dùng Large)
+    # Khởi tạo client trực tiếp, thoát khỏi mọi hàm bọc (wrapper)
+    client = AsyncOpenAI(
+        api_key=os.environ.get("MISTRAL_API_KEY", ""),
+        base_url="https://api.mistral.ai/v1"
+    )
+    
+    # Lấy ID của Mistral Large và Magistral
     model_a = MODEL_REGISTRY.get("large", {}).get("model_id", "mistral-large-latest")
     model_b = MODEL_REGISTRY.get("reason", {}).get("model_id", "mistral-large-latest")
     
@@ -192,15 +199,25 @@ async def run_debate(user_id: str, topic: str, rounds: int = 2) -> str:
     
     try:
         for i in range(rounds):
-            prompt_a = f"Bạn là AI Ủng Hộ (Proponent). Chủ đề: {topic}. Hãy đưa ra luận điểm sắc bén. Nếu đối thủ đã nói, hãy phản bác mạnh mẽ. Lịch sử tranh luận:\n{transcript}"
-            reply_a = await call_mistral_text(prompt_a, model_id=model_a)
-            transcript += f"🟢 [AI Ủng Hộ]:\n{reply_a}\n\n"
+            # Lượt của AI 1
+            prompt_a = f"Bạn là AI Ủng Hộ (Proponent). Chủ đề: {topic}. Hãy đưa ra luận điểm sắc bén và thuyết phục. Lịch sử tranh luận:\n{transcript}"
+            resp_a = await client.chat.completions.create(
+                model=model_a,
+                messages=[{"role": "user", "content": prompt_a}],
+                temperature=0.7
+            )
+            transcript += f"🟢 [AI Ủng Hộ]:\n{resp_a.choices[0].message.content}\n\n"
             
-            prompt_b = f"Bạn là AI Phản Đối (Opponent). Chủ đề: {topic}. Hãy phản bác gay gắt luận điểm của AI Ủng Hộ và đưa ra góc nhìn trái chiều. Lịch sử tranh luận:\n{transcript}"
-            reply_b = await call_mistral_text(prompt_b, model_id=model_b)
-            transcript += f"🔴 [AI Phản Đối]:\n{reply_b}\n\n"
+            # Lượt của AI 2
+            prompt_b = f"Bạn là AI Phản Đối (Opponent). Chủ đề: {topic}. Hãy phản bác gay gắt luận điểm của đối thủ và đưa ra góc nhìn trái chiều. Lịch sử tranh luận:\n{transcript}"
+            resp_b = await client.chat.completions.create(
+                model=model_b,
+                messages=[{"role": "user", "content": prompt_b}],
+                temperature=0.7
+            )
+            transcript += f"🔴 [AI Phản Đối]:\n{resp_b.choices[0].message.content}\n\n"
             
         transcript += "🏁 KẾT THÚC TRANH LUẬN."
         return transcript
     except Exception as e:
-        return f"Lỗi trong quá trình tranh luận: {str(e)}"
+        return f"Lỗi hệ thống tranh luận: {str(e)}"
