@@ -11,85 +11,37 @@ from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
 from database import DB_PATH, get_user_model, set_user_model, get_user_max_tokens, set_user_max_tokens, get_user_profile, save_user_profile, get_reminders, cancel_reminder, save_reminder
 from google_workspace import handle_workspace_command
 from rag_core import process_file_upload, list_rag_docs, delete_rag_doc, clear_rag_docs
-from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow, run_debate
+from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow, run_debate, run_debate
 
 def _models_list_text() -> str:
     return (
-        "📋 ULTRA BOLT — DANH SÁCH LỆNH
-"
-        "
-"
-        "━━ Models ━━
-"
-        "💬 /small — Mistral Small 4
-"
-        "💬 /large — Mistral Large 3
-"
-        "💬 /coder — Codestral (code)
-"
-        "🧠 /reason — Magistral Medium (reasoning)
-"
-        "👁 /vision — Pixtral Large (hình ảnh)
-"
-        "
-"
-        "━━ Chế độ AI ━━
-"
-        "🤖 /auto — Tự chọn model tối ưu
-"
-        "🧠 /pro <câu hỏi> — Deep Thinking
-"
-        "⚔️ /debate <câu hỏi> — 2 AI tranh luận
-"
-        "🤖 /agent <nhiệm vụ> — Agent + tools
-"
-        "💻 /coder <yêu cầu> — Plan→Code→Review
-"
-        "
-"
-        "━━ Google Workspace ━━
-"
-        "🔐 /login — Kết nối Google
-"
-        "📬 /ls mail [trang] [Nd] — Xem hộp thư
-"
-        "📧 /mail <số> — Đọc + tóm tắt
-"
-        "📅 /cal — Xem lịch | /cal add ...
-"
-        "🚫 /block <từ> | /unblock <từ>
-"
-        "
-"
-        "━━ RAG ━━
-"
-        "📄 Gửi PDF/TXT/DOCX → auto lưu KB
-"
-        "📂 /rag list | /rag clear | /rag off
-"
-        "
-"
-        "━━ Cá nhân ━━
-"
-        "👤 /profile — Xem/sửa thông tin
-"
-        "⏰ /remind HH:MM nội dung
-"
-        "📋 /remind list | /remind <id> cancel
-"
-        "
-"
-        "━━ Cài đặt ━━
-"
-        "🇻🇳 /vi | 🇹🇼 /tw — Ngôn ngữ
-"
-        "📏 /long | /short | /tokens
-"
-        "🗑 /clear — Xoá lịch sử
-"
-        "💰 /mn — Chi tiêu | 📊 /usage
-"
-        "🔀 /model <tên> | /auto"
+        "📋 ULTRA BOLT — DANH SÁCH LỆNH\n"
+        "\n"
+        "━━ Models ━━\n"
+        "💬 /small — Mistral Small 4\n"
+        "💬 /large — Mistral Large 3\n"
+        "💬 /coder — Codestral\n"
+        "🧠 /reason — Magistral Medium\n"
+        "👁 /vision — Pixtral Large\n"
+        "\n"
+        "━━ AI Modes ━━\n"
+        "🤖 /auto | 🧠 /pro | ⚔️ /debate\n"
+        "🤖 /agent | 💻 /coder\n"
+        "\n"
+        "━━ Google ━━\n"
+        "🔐 /login | 📬 /ls mail | 📧 /mail\n"
+        "📅 /cal | /block | /unblock\n"
+        "\n"
+        "━━ RAG ━━\n"
+        "📄 Send PDF/TXT/DOCX → auto KB\n"
+        "📂 /rag list|clear|off|on\n"
+        "\n"
+        "━━ Personal ━━\n"
+        "👤 /profile | ⏰ /remind | 💰 /mn\n"
+        "\n"
+        "━━ Settings ━━\n"
+        "🇻🇳 /vi | 🇹🇼 /tw | /long | /short\n"
+        "🗑 /clear | 📊 /usage | /model | /auto"
     )
 
 async def handle_command(user_id: str, text: str) -> str | None:
@@ -120,6 +72,18 @@ async def handle_command(user_id: str, text: str) -> str | None:
         if not arg:
             return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /coder Viết hàm Python tính dãy Fibonacci"
         return await run_multi_agent_workflow(user_id, arg)
+
+    if cmd == "debate":
+        if not arg:
+            return "⚔️ /debate <câu hỏi> — 2 AI tranh luận\n/debate 3 câu hỏi — 3 vòng"
+        parts_d = arg.split(maxsplit=1)
+        if parts_d[0].isdigit() and len(parts_d) > 1:
+            rounds = min(int(parts_d[0]), 4)
+            question = parts_d[1]
+        else:
+            rounds = 2
+            question = arg
+        return await run_debate(user_id, question, rounds)
 
     if cmd == "debate":
         if not arg:
