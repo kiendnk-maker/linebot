@@ -181,43 +181,76 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
     return "⚠️ Agent đã vượt quá số vòng lặp tối đa."
 
 async def run_debate(user_id: str, topic: str, rounds: int = 2) -> str:
+    import asyncio
+    # Phản hồi ngay cho LINE để né Timeout, đẩy phần việc nặng vào background
+    asyncio.create_task(_background_debate(user_id, topic, rounds))
+    return f"⚔️ VÕ ĐÀI AI ĐÃ MỞ (Chế độ Trọng tài)!\n⚖️ Chủ đề: {topic}\n🔄 Số hiệp: {rounds}\n\n🤖 Các chuyên gia đang vào vị trí. Bạn sẽ nhận được từng hiệp đấu ngay bây giờ..."
+
+async def _background_debate(user_id: str, topic: str, rounds: int):
     import os
+    import httpx
     from openai import AsyncOpenAI
     from llm_core import MODEL_REGISTRY
     
-    # Khởi tạo client trực tiếp, thoát khỏi mọi hàm bọc (wrapper)
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+    
+    # Hàm bắn tin nhắn Push trực tiếp tới user
+    async def push_msg(text):
+        if not token: return
+        url = "https://api.line.me/v2/bot/message/push"
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+        data = {"to": user_id, "messages": [{"type": "text", "text": text[:5000]}]}
+        async with httpx.AsyncClient() as client:
+            await client.post(url, headers=headers, json=data)
+
     client = AsyncOpenAI(
         api_key=os.environ.get("MISTRAL_API_KEY", ""),
         base_url="https://api.mistral.ai/v1"
     )
     
-    # Lấy ID của Mistral Large và Magistral
     model_a = MODEL_REGISTRY.get("large", {}).get("model_id", "mistral-large-latest")
     model_b = MODEL_REGISTRY.get("reason", {}).get("model_id", "mistral-large-latest")
     
-    transcript = f"⚔️ CHỦ ĐỀ TRANH LUẬN: {topic}\n⚖️ Số vòng: {rounds}\n\n"
+    a_history = []
+    b_history = []
     
     try:
+        a_says = ""
+        b_says = ""
         for i in range(rounds):
-            # Lượt của AI 1
-            prompt_a = f"Bạn là AI Ủng Hộ (Proponent). Chủ đề: {topic}. Hãy đưa ra luận điểm sắc bén và thuyết phục. Lịch sử tranh luận:\n{transcript}"
-            resp_a = await client.chat.completions.create(
-                model=model_a,
-                messages=[{"role": "user", "content": prompt_a}],
-                temperature=0.7
-            )
-            transcript += f"🟢 [AI Ủng Hộ]:\n{resp_a.choices[0].message.content}\n\n"
+            round_num = i + 1
             
-            # Lượt của AI 2
-            prompt_b = f"Bạn là AI Phản Đối (Opponent). Chủ đề: {topic}. Hãy phản bác gay gắt luận điểm của đối thủ và đưa ra góc nhìn trái chiều. Lịch sử tranh luận:\n{transcript}"
-            resp_b = await client.chat.completions.create(
-                model=model_b,
-                messages=[{"role": "user", "content": prompt_b}],
-                temperature=0.7
-            )
-            transcript += f"🔴 [AI Phản Đối]:\n{resp_b.choices[0].message.content}\n\n"
+            # ── Model A: Advocate (Large) ──
+            if i == 0:
+                a_prompt = f"Bạn là chuyên gia phân tích (Advocate). Đưa ra quan điểm rõ ràng, có luận cứ cho câu hỏi sau:\n\n{topic}"
+            else:
+                a_prompt = f"Đối phương (Critic) vừa phản biện:\n{b_says}\n\nHãy bảo vệ hoặc điều chỉnh quan điểm của bạn. Thừa nhận điểm đúng của đối phương nếu có."
+                
+            resp_a = await client.chat.completions.create(model=model_a, messages=[{"role": "user", "content": a_prompt}], temperature=0.7)
+            a_says = resp_a.choices[0].message.content
+            a_history.append(a_says)
+            await push_msg(f"🔵 [Hiệp {round_num}] Advocate (Ủng hộ):\n\n{a_says}")
             
-        transcript += "🏁 KẾT THÚC TRANH LUẬN."
-        return transcript
+            # ── Model B: Critic (Magistral/Reason) ──
+            b_prompt = f"Bạn là chuyên gia phản biện (Critic). Phân tích quan điểm sau, tìm điểm yếu, thiếu sót, hoặc góc nhìn bị bỏ qua. Đưa ra phản biện có logic.\n\nQuan điểm của Advocate:\n{a_says}"
+            
+            resp_b = await client.chat.completions.create(model=model_b, messages=[{"role": "user", "content": b_prompt}], temperature=0.7)
+            b_says = resp_b.choices[0].message.content
+            b_history.append(b_says)
+            await push_msg(f"🔴 [Hiệp {round_num}] Critic (Phản biện):\n\n{b_says}")
+            
+        # ── Judge: Synthesize (Large) ──
+        await push_msg("⚖️ Trọng tài đang tổng hợp kết luận...")
+        
+        judge_prompt = f"Bạn là trọng tài trung lập. Đọc cuộc tranh luận sau và đưa ra kết luận cuối cùng, tổng hợp điểm mạnh của cả hai bên.\n\nCâu hỏi gốc: {topic}\n\n"
+        for i in range(rounds):
+            judge_prompt += f"--- Hiệp {i+1} ---\nAdvocate: {a_history[i][:800]}\nCritic: {b_history[i][:800]}\n\n"
+        judge_prompt += "Kết luận cuối cùng (tổng hợp cả hai bên):"
+        
+        resp_judge = await client.chat.completions.create(model=model_a, messages=[{"role": "user", "content": judge_prompt}], temperature=0.5)
+        verdict = resp_judge.choices[0].message.content
+        
+        await push_msg(f"🏆 KẾT LUẬN TỪ TRỌNG TÀI:\n\n{verdict}\n\n🏁 KẾT THÚC TRANH LUẬN.")
+        
     except Exception as e:
-        return f"Lỗi hệ thống tranh luận: {str(e)}"
+        await push_msg(f"⚠️ Lỗi hệ thống tranh luận: {str(e)}")
