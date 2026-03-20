@@ -85,7 +85,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
     if cmd == "nuke":
         try:
             import sqlite3
-            from database import DB_PATH
+
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
