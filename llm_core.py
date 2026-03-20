@@ -20,7 +20,7 @@ WHISPER_MODEL   = "whisper-large-v3-turbo"
 SUMMARY_TRIGGER = 20
 
 MODEL_REGISTRY: dict[str, dict] = {
-    "llama8b": {
+    "small": {
         "model_id": "mistral-small-latest",
         "type":    "text",
         "tier":    "production",
@@ -28,7 +28,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "ctx":     131_072,
         "note":    "最快 ~900 t/s，超便宜 — 用於 classifier 和簡單對話",
     },
-    "llama70b": {
+    "large": {
         "model_id": "mistral-large-latest",
         "type":    "text",
         "tier":    "production",
@@ -36,7 +36,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "ctx":     131_072,
         "note":    "均衡性能，寫作、翻譯、多語言",
     },
-    "gpt20b": {
+    "small": {
         "model_id": "openai/gpt-oss-20b",
         "type":    "reasoning",
         "tier":    "production",
@@ -44,7 +44,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "ctx":     131_072,
         "note":    "超快 ~1000 t/s，輕量推理",
     },
-    "gpt120b": {
+    "large": {
         "model_id": "openai/gpt-oss-120b",
         "type":    "reasoning",
         "tier":    "production",
@@ -52,7 +52,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "ctx":     131_072,
         "note":    "最強推理，~500 t/s",
     },
-    "compound": {
+    "large": {
         "model_id": "groq/compound",
         "type":    "text",
         "tier":    "production",
@@ -60,7 +60,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "ctx":     131_072,
         "note":    "內建網路搜尋 + 程式執行，最多10次工具呼叫",
     },
-    "compound-mini": {
+    "small": {
         "model_id": "groq/compound-mini",
         "type":    "text",
         "tier":    "production",
@@ -68,7 +68,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "ctx":     131_072,
         "note":    "Compound 輕量版，單次工具呼叫，速度快3倍",
     },
-    "scout": {
+    "vision": {
         "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
         "type":    "vision",
         "tier":    "preview",
@@ -76,7 +76,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "ctx":     131_072,
         "note":    "唯一視覺模型，低延遲",
     },
-    "qwen": {
+    "small": {
         "model_id": "qwen/qwen3-32b",
         "type":    "reasoning",
         "tier":    "preview",
@@ -84,7 +84,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "ctx":     131_072,
         "note":    "推理 + thinking mode，多語言強",
     },
-    "kimi": {
+    "large": {
         "model_id": "moonshotai/kimi-k2-instruct-0905",
         "type":    "text",
         "tier":    "preview",
@@ -94,18 +94,18 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
 }
 
+DEFAULT_MODEL_KEY    = "large"
 
+VISION_MODEL_KEY     = "vision"
 
-
-
-
+CLASSIFIER_MODEL_KEY = "small"
 
 ROUTE_MAP: dict[str, str] = {
-    "simple":    "llama8b",
-    "creative":  "llama70b",
-    "reasoning": "qwen",
-    "hard":      "gpt120b",
-    "search":    "compound-mini",
+    "simple":    "small",
+    "creative":  "large",
+    "reasoning": "small",
+    "hard":      "large",
+    "search":    "small",
 }
 
 _REALTIME_KEYWORDS = (
@@ -164,21 +164,21 @@ async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
 
     # Priority 2: realtime check BEFORE len>500 (avoid "hôm nay" in reminder context — see SPEC §16.7)
     if _needs_realtime(user_text):
-        return "compound-mini", MODEL_REGISTRY["compound-mini"]["model_id"]
+        return "small", MODEL_REGISTRY["small"]["model_id"]
 
     # Priority 3: long text without question → summarize
     if len(user_text) > 500 and "?" not in user_text and "？" not in user_text:
-        return "llama70b", MODEL_REGISTRY["llama70b"]["model_id"]
+        return "large", MODEL_REGISTRY["large"]["model_id"]
 
     # Priority 4: classifier
     text_lower = user_text.lower()
     # Fast-Path 1: Toán học -> Auto Qwen
     if any(kw in text_lower for kw in {"cộng", "trừ", "nhân", "chia", "tính", "+", "-", "*", "/", "đạo hàm", "tích phân"}):
-        return "qwen", MODEL_REGISTRY["qwen"]["model_id"]
+        return "small", MODEL_REGISTRY["small"]["model_id"]
         
     # Fast-Path 2: Dịch thuật -> Auto LLaMA 70B
     if any(kw in text_lower for kw in {"dịch", "translate", "tiếng anh", "tiếng trung", "tiếng nhật"}):
-        return "llama70b", MODEL_REGISTRY["llama70b"]["model_id"]
+        return "large", MODEL_REGISTRY["large"]["model_id"]
         
     # Nếu không khớp Regex thì mới gọi Classifier
     routed_key = await classify_query(user_text)
@@ -219,7 +219,7 @@ async def maybe_summarize(user_id: str) -> None:
         client = global_groq_client
         try:
             resp = await client.chat.completions.create(
-                model=MODEL_REGISTRY["llama8b"]["model_id"],
+                model=MODEL_REGISTRY["small"]["model_id"],
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=200,
@@ -309,13 +309,13 @@ async def call_mistral_text(
 
     # reasoning_effort=low for gpt120b (SPEC §11)
     extra: dict = {}
-    if model_id == MODEL_REGISTRY["gpt120b"]["model_id"]:
+    if model_id == MODEL_REGISTRY["large"]["model_id"]:
         extra["reasoning_effort"] = "low"
 
     # max_tokens: user override → model default (SPEC §11)
     user_max = await get_user_max_tokens(user_id) if user_id else 800
     max_tok  = user_max if user_max != 800 else (
-        1500 if model_key in ("qwen", "gpt120b", "gpt20b") else 800
+        1500 if model_key in ("small", "large", "small") else 800
     )
 
     if True:
@@ -333,7 +333,7 @@ async def call_mistral_text(
             err = str(e)
             # Compound 400 → fallback to llama70b (SPEC §11)
             if "400" in err and model_id.startswith("groq/compound"):
-                fallback_id = MODEL_REGISTRY["llama70b"]["model_id"]
+                fallback_id = MODEL_REGISTRY["large"]["model_id"]
                 try:
                     resp = await client.chat.completions.create(
                         model=fallback_id,
@@ -398,7 +398,7 @@ async def clean_transcript(transcript: str) -> str:
         client = global_groq_client
         try:
             resp = await client.chat.completions.create(
-                model=MODEL_REGISTRY["gpt120b"]["model_id"],
+                model=MODEL_REGISTRY["large"]["model_id"],
                 messages=[{
                     "role": "user",
                     "content": (
@@ -435,38 +435,15 @@ def _split_reply(reply: str) -> list[str]:
 
 
 
-}
-
 MODEL_REGISTRY = {
-    "small": {
-        "model_id": "mistral-small-latest",
-        "type": "text",
-        "display": "Mistral Small 4",
-        "tier": "production",
-        "note": "最快，超便宜 — 用於日常對話與輕量任務"
-    },
-    "large": {
-        "model_id": "mistral-large-latest",
-        "type": "text",
-        "display": "Mistral Large 3",
-        "tier": "production",
-        "note": "最強推理，均衡性能 — 適合寫作、翻譯、複雜邏輯"
-    },
-    "coder": {
-        "model_id": "codestral-latest",
-        "type": "text",
-        "display": "Codestral",
-        "tier": "production",
-        "note": "專為程式碼生成、重構與 Debug 設計"
-    },
-    "vision": {
-        "model_id": "pixtral-12b-2409",
-        "type": "vision",
-        "display": "Pixtral Vision",
-        "tier": "preview",
-        "note": "精準視覺模型，支援圖片、圖表與 OCR 分析"
-    }
+    "small": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay Llama 8B"},
+    "large": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay Llama 70B"},
+    "small": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay GPT 20B"},
+    "large": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay GPT 120B"},
+    "large": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay Compound"},
+    "small": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay Compound Mini"},
+    "small": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "preview", "note": "Thay Qwen"},
+    "large": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "preview", "note": "Thay Kimi"},
+    "coder": {"model_id": "codestral-latest", "type": "text", "display": "Codestral", "tier": "production", "note": "Thay Dev"},
+    "vision": {"model_id": "pixtral-12b-2409", "type": "vision", "display": "Pixtral Vision", "tier": "preview", "note": "Thay Scout"}
 }
-DEFAULT_MODEL_KEY = "large"
-VISION_MODEL_KEY = "vision"
-CLASSIFIER_MODEL_KEY = "small"
