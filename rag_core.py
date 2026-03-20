@@ -70,6 +70,143 @@ async def embed_text(text: str) -> list[float]:
         except Exception as e:
             print(f"Lỗi Embeddings: {e}")
         return []
+async def embed_batch(texts: list[str]) -> list[list[float]]:
+    sem = asyncio.Semaphore(5)  # Giới hạn 5 luồng đồng thời gọi API Gemini
+    
+    async def embed_with_sem(text: str) -> list[float]:
+        async with sem:
+            return await embed_text(text)
+            
+    # Xử lý đồng thời tất cả các chunk
+    tasks = [embed_with_sem(t) for t in texts]
+    return await asyncio.gather(*tasks)
+
+def chunk_text(text: str) -> list[str]:
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = start + CHUNK_SIZE
+        chunks.append(text[start:end])
+        start += CHUNK_SIZE - CHUNK_OVERLAP
+    return [c.strip() for c in chunks if c.strip()]
+
+async def chroma_upsert(
+    user_id: str,
+    chunks: list[str],
+    embeddings: list[list[float]],
+    filename: str,
+) -> None:
+    lock = await _get_chroma_lock(user_id)
+    async with lock:
+        col = get_user_collection(user_id)
+        ts  = int(time.time())
+        col.upsert(
+            ids=[f"{filename}_{i}" for i in range(len(chunks))],
+            embeddings=embeddings,
+            documents=chunks,
+            metadatas=[
+                {"filename": filename, "chunk_index": i, "uploaded_at": ts}
+                for i in range(len(chunks))
+            ],
+        )
+
+async def save_rag_doc(user_id: str, filename: str, chunk_count: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO rag_docs (user_id, filename, chunk_count, uploaded_at) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, filename, chunk_count, int(time.time())),
+        )
+        await db.commit()
+
+async def list_rag_docs(user_id: str) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id, filename, chunk_count, uploaded_at FROM rag_docs "
+            "WHERE user_id = ? ORDER BY uploaded_at DESC",
+            (user_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "filename": r[1], "chunk_count": r[2], "uploaded_at": r[3]} for r in rows]
+
+async def count_rag_docs(user_id: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM rag_docs WHERE user_id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else 0
+
+async def has_rag_docs(user_id: str) -> bool:
+    return await count_rag_docs(user_id) > 0
+
+async def delete_rag_doc(user_id: str, filename: str) -> bool:
+    """Delete one file from ChromaDB + SQLite metadata."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "DELETE FROM rag_docs WHERE user_id = ? AND filename = ?",
+            (user_id, filename),
+        )
+        await db.commit()
+        if cur.rowcount == 0:
+            return False
+
+    lock = await _get_chroma_lock(user_id)
+    async with lock:
+        try:
+            col = get_user_collection(user_id)
+            # Delete all chunks whose ID starts with filename_
+            all_ids = col.get()["ids"]
+            to_delete = [i for i in all_ids if i.startswith(f"{filename}_")]
+            if to_delete:
+                col.delete(ids=to_delete)
+        except Exception as e:
+            logger.warning(f"ChromaDB delete error for {filename}: {e}")
+    return True
+
+async def clear_rag_docs(user_id: str) -> int:
+    """Clear all RAG docs for user. Returns number of files deleted."""
+    docs = await list_rag_docs(user_id)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM rag_docs WHERE user_id = ?", (user_id,))
+        await db.commit()
+
+    lock = await _get_chroma_lock(user_id)
+    async with lock:
+        try:
+            chroma_client.delete_collection(f"rag_{user_id}")
+        except Exception:
+            pass
+    return len(docs)
+
+async def rag_search(
+    user_id: str,
+    query: str,
+    top_k: int = RAG_TOP_K,
+) -> list[dict]:
+    """
+    Guard conditions (flow.md §rag_search):
+    - Only called when user_id has at least 1 doc (caller must check has_rag_docs)
+    - Not called for commands, image, audio-transcribe-only, file handler, reminders
+    Returns list of {content, filename, chunk_index}.
+    """
+    try:
+        vec = await embed_text(query)
+        col = get_user_collection(user_id)
+        results = col.query(query_embeddings=[vec], n_results=top_k)
+        docs      = results.get("documents", [[]])[0]
+        metadatas = results.get("metadatas", [[]])[0]
+        return [
+            {
+                "content":     doc,
+                "filename":    meta.get("filename", "unknown"),
+                "chunk_index": meta.get("chunk_index", 0),
+            }
+            for doc, meta in zip(docs, metadatas)
+        ]
+    except Exception as e:
+        logger.warning(f"rag_search error for {user_id}: {e}")
+        return []
 
 async def process_file_upload(user_id: str, file_bytes: bytes, filename: str) -> str:
     """
