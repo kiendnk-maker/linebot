@@ -11,7 +11,7 @@ from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
 from database import DB_PATH, get_user_model, set_user_model, get_user_max_tokens, set_user_max_tokens, get_user_profile, save_user_profile, get_reminders, cancel_reminder, save_reminder
 from google_workspace import handle_workspace_command
 from rag_core import process_file_upload, list_rag_docs, delete_rag_doc, clear_rag_docs
-from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow, run_debate, run_debate
+from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow, run_debate
 
 def _models_list_text() -> str:
     return (

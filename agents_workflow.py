@@ -179,3 +179,28 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
             return f"⚠️ Lỗi Agent: {str(e)[:200]}"
 
     return "⚠️ Agent đã vượt quá số vòng lặp tối đa."
+
+
+async def run_debate(user_id: str, topic: str, rounds: int = 2) -> str:
+    from llm_core import call_mistral_text, MODEL_REGISTRY
+    
+    # AI 1 dùng Large, AI 2 dùng Magistral (nếu có, không thì dùng Large)
+    model_a = MODEL_REGISTRY.get("large", {}).get("model_id", "mistral-large-latest")
+    model_b = MODEL_REGISTRY.get("reason", {}).get("model_id", "mistral-large-latest")
+    
+    transcript = f"⚔️ CHỦ ĐỀ TRANH LUẬN: {topic}\n⚖️ Số vòng: {rounds}\n\n"
+    
+    try:
+        for i in range(rounds):
+            prompt_a = f"Bạn là AI Ủng Hộ (Proponent). Chủ đề: {topic}. Hãy đưa ra luận điểm sắc bén. Nếu đối thủ đã nói, hãy phản bác mạnh mẽ. Lịch sử tranh luận:\n{transcript}"
+            reply_a = await call_mistral_text(prompt_a, model=model_a, max_tokens=600)
+            transcript += f"🟢 [AI Ủng Hộ]:\n{reply_a}\n\n"
+            
+            prompt_b = f"Bạn là AI Phản Đối (Opponent). Chủ đề: {topic}. Hãy phản bác gay gắt luận điểm của AI Ủng Hộ và đưa ra góc nhìn trái chiều. Lịch sử tranh luận:\n{transcript}"
+            reply_b = await call_mistral_text(prompt_b, model=model_b, max_tokens=600)
+            transcript += f"🔴 [AI Phản Đối]:\n{reply_b}\n\n"
+            
+        transcript += "🏁 KẾT THÚC TRANH LUẬN."
+        return transcript
+    except Exception as e:
+        return f"Lỗi trong quá trình tranh luận: {str(e)}"
