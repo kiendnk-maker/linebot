@@ -11,7 +11,7 @@ from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
 from database import DB_PATH, get_user_model, set_user_model, get_user_max_tokens, set_user_max_tokens, get_user_profile, save_user_profile, get_reminders, cancel_reminder, save_reminder
 from google_workspace import handle_workspace_command
 from rag_core import process_file_upload, list_rag_docs, delete_rag_doc, clear_rag_docs
-from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow
+from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow, run_debate
 
 def _models_list_text() -> str:
     prod_lines: list[str] = []
@@ -63,6 +63,26 @@ async def handle_command(user_id: str, text: str) -> str | None:
         if not arg:
             return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /coder Viết hàm Python tính dãy Fibonacci"
         return await run_multi_agent_workflow(user_id, arg)
+
+    if cmd == "debate":
+        if not arg:
+            return (
+                "⚔️ Chế độ tranh luận — 2 AI đấu trí rồi trọng tài kết luận\n\n"
+                "Cách dùng:\n"
+                "/debate Nên học Thạc sĩ hay đi làm ngay?\n"
+                "/debate 3 Đài Loan hay Nhật Bản để du học?\n\n"
+                "Số đầu = số vòng tranh luận (mặc định 2)"
+            )
+        # Parse rounds: /debate 3 câu hỏi...
+        parts_d = arg.split(maxsplit=1)
+        if parts_d[0].isdigit() and len(parts_d) > 1:
+            rounds = min(int(parts_d[0]), 4)
+            question = parts_d[1]
+        else:
+            rounds = 2
+            question = arg
+        return await run_debate(user_id, question, rounds)
+
 
     # ── PREFERENCES & SYSTEM ───────────────────────────────────────────────
     if cmd == "vi":
