@@ -10,3 +10,5 @@ pdfplumber
 google-genai
 python-docx
 cachetools
+
+openai

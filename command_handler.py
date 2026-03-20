@@ -421,7 +421,7 @@ Nội dung bản ghi âm cần tóm tắt:
         await set_user_model(user_id, cmd)
         cfg = MODEL_REGISTRY[cmd]
         if arg:
-            answer = await main.call_groq_text(
+            answer = await main.call_mistral_text(
                 [{"role": "user", "content": arg}],
                 cfg["model_id"],
                 model_key=cmd,

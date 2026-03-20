@@ -10,10 +10,10 @@ from prompts import get_system_prompt
 from database import DB_PATH, get_user_profile, get_user_model, get_user_max_tokens, count_history, get_history_raw, get_summary, save_summary
 
 logger = logging.getLogger(__name__)
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 
 # Khởi tạo Connection Pool Toàn cục
-global_groq_client = AsyncGroq(api_key=GROQ_API_KEY, timeout=20.0, max_retries=2)
+global_groq_client = AsyncGroq(api_key=MISTRAL_API_KEY, timeout=20.0, max_retries=2)
 
 WHISPER_MODEL   = "whisper-large-v3-turbo"
 
@@ -256,7 +256,7 @@ def strip_markdown(text: str) -> str:
         parts_text[i] = p
     return "".join(parts_text).strip()
 
-async def call_groq_text(
+async def call_mistral_text(
     history: list[dict],
     model_id: str,
     model_key: str = DEFAULT_MODEL_KEY,
@@ -346,7 +346,7 @@ async def call_groq_text(
                     return f"⚠️ 錯誤 [{fallback_id}]: {str(e2)[:150]}"
             return f"⚠️ 錯誤 [{model_id}]: {err[:150]}"
 
-async def call_groq_vision(image_b64: str) -> str:
+async def call_mistral_vision(image_b64: str) -> str:
     model_id = MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"]
     system   = get_system_prompt(VISION_MODEL_KEY)
     if True:

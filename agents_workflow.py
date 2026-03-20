@@ -1,4 +1,4 @@
-from groq import AsyncGroq
+from openai import AsyncOpenAI
 import os
 import json
 import logging
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 async def run_multi_agent_workflow(user_id: str, task: str) -> str:
     planner_prompt = f"Bạn là một System Architect (Kiến trúc sư phần mềm). Nhiệm vụ của bạn là phân tích và lập kế hoạch từng bước rõ ràng để giải quyết yêu cầu sau:\n\nYÊU CẦU: {task}\n\nChỉ trả về các bước lập trình, không cần viết code."
-    plan = await main.call_groq_text(
+    plan = await main.call_mistral_text(
         history=[{"role": "user", "content": planner_prompt}],
         model_id=main.MODEL_REGISTRY["qwen"]["model_id"],
         model_key="qwen",
@@ -18,7 +18,7 @@ async def run_multi_agent_workflow(user_id: str, task: str) -> str:
     )
 
     coder_prompt = f"Bạn là một Senior Developer. Dựa vào bản thiết kế dưới đây, hãy viết mã nguồn hoàn chỉnh và tối ưu nhất:\n\n[BẢN THIẾT KẾ]\n{plan}\n\n[YÊU CẦU GỐC]\n{task}"
-    code = await main.call_groq_text(
+    code = await main.call_mistral_text(
         history=[{"role": "user", "content": coder_prompt}],
         model_id=main.MODEL_REGISTRY["llama70b"]["model_id"],
         model_key="llama70b",
@@ -26,7 +26,7 @@ async def run_multi_agent_workflow(user_id: str, task: str) -> str:
     )
 
     reviewer_prompt = f"Bạn là một QA & Security Engineer khắt khe. Hãy kiểm tra đoạn mã sau xem có lỗi logic, lỗ hổng bảo mật, hoặc điểm nào cần tối ưu hiệu năng không. Đưa ra nhận xét và cách sửa (nếu có):\n\n[MÃ NGUỒN CẦN DUYỆT]\n{code}"
-    review = await main.call_groq_text(
+    review = await main.call_mistral_text(
         history=[{"role": "user", "content": reviewer_prompt}],
         model_id=main.MODEL_REGISTRY["gpt120b"]["model_id"],
         model_key="gpt120b",
@@ -52,7 +52,7 @@ async def run_pro_workflow(user_id: str, task: str) -> str:
         f"Đưa ra luồng suy nghĩ chi tiết, các góc nhìn cần lưu ý và lập dàn ý nội dung tốt nhất để giải quyết:\n\n"
         f"YÊU CẦU: {task}"
     )
-    thought_process = await main.call_groq_text(
+    thought_process = await main.call_mistral_text(
         history=[{"role": "user", "content": thinker_prompt}],
         model_id=main.MODEL_REGISTRY["qwen"]["model_id"],
         model_key="qwen",
@@ -67,7 +67,7 @@ async def run_pro_workflow(user_id: str, task: str) -> str:
         f"[PHÂN TÍCH & DÀN Ý CỦA BỘ NÃO]\n{thought_process}\n\n"
         f"[YÊU CẦU GỐC CỦA NGƯỜI DÙNG]\n{task}"
     )
-    final_answer = await main.call_groq_text(
+    final_answer = await main.call_mistral_text(
         history=[{"role": "user", "content": writer_prompt}],
         model_id=main.MODEL_REGISTRY["gpt120b"]["model_id"],
         model_key="gpt120b",
@@ -84,13 +84,13 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
     ]
     
     max_iterations = 5 # Giới hạn số vòng lặp để tránh treo hệ thống
-    client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY", ""))
+    client = AsyncOpenAI(api_key=os.environ.get("MISTRAL_API_KEY", ""), base_url="https://api.mistral.ai/v1")
     
     for iteration in range(max_iterations):
         try:
             # Gọi Groq API (sử dụng Llama 3.3 70B vì nó hỗ trợ Tool Calling rất tốt)
             resp = await client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="mistral-large-latest",
                 messages=messages,
                 tools=AGENT_TOOLS,
                 tool_choice="auto"

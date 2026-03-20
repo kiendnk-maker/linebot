@@ -30,7 +30,7 @@ from linebot.v3.webhooks import (
 from database import DB_PATH, init_db, save_message
 from llm_core import (
     MODEL_REGISTRY, DEFAULT_MODEL_KEY, resolve_model, get_history_with_summary, maybe_summarize,
-    call_groq_text, call_groq_vision, call_groq_whisper, clean_transcript,
+    call_mistral_text, call_mistral_vision, call_groq_whisper, clean_transcript,
     strip_markdown, _split_reply
 )
 from reminder_system import parse_reminder_nlp, reminder_loop
@@ -149,7 +149,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                             rag_chunks = await rag_search(user_id, clean_text)
 
                         await save_message(user_id, "user", clean_text)
-                        answer = await call_groq_text(
+                        answer = await call_mistral_text(
                             history, model_id, model_key=model_key, user_id=user_id, rag_chunks=rag_chunks or None
                         )
                         await save_message(user_id, "assistant", answer)
@@ -167,7 +167,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
         elif isinstance(event.message, ImageMessageContent):
             img_bytes = await line_blob_api.get_message_content(event.message.id)
             img_b64   = base64.b64encode(img_bytes).decode("utf-8")
-            answer    = await call_groq_vision(img_b64)
+            answer    = await call_mistral_vision(img_b64)
             if "⚠️" in answer:
                 reply = answer
             else:
@@ -206,7 +206,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                                 "VD: phan-tich-du-lieu, hop-team-marketing, bao-cao-tai-chinh\n"
                                 f"{transcript[:500]}"
                             )
-                            title_raw = await call_groq_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
+                            title_raw = await call_mistral_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
                             # Aggressive cleanup: only keep [a-z0-9-]
                             safe_title = re.sub(r'[^a-zA-Z0-9\-]', '', title_raw.strip().split('\n')[0].lower())
                             safe_title = re.sub(r'-+', '-', safe_title).strip('-')
@@ -272,7 +272,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                     if user_id not in _rag_disabled and await has_rag_docs(user_id):
                         rag_chunks = await rag_search(user_id, user_text)
 
-                    answer = await call_groq_text(
+                    answer = await call_mistral_text(
                         history, model_id, model_key=model_key, user_id=user_id, rag_chunks=rag_chunks or None
                     )
                     await save_message(user_id, "assistant", answer)
