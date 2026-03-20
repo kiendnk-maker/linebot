@@ -308,7 +308,7 @@ async def call_mistral_text(
             pass
     # --------------------------------
 
-    # reasoning_effort=low for gpt120b (SPEC §11)
+    # )
     extra: dict = {}
     if model_id == MODEL_REGISTRY["large"]["model_id"]:
         extra["reasoning_effort"] = "low"
