@@ -1,3 +1,8 @@
+"""
+llm_core.py — Mistral API Integration (Full Exploitation)
+Fixed: duplicate MODEL_REGISTRY, reasoning_effort 422, if True guards
+New: Magistral reasoning, web_search tool, Codestral, Pixtral Large
+"""
 from tracker_core import log_usage
 import os
 import re
@@ -8,16 +13,37 @@ import logging
 import base64
 from openai import AsyncOpenAI
 from prompts import get_system_prompt
-from database import DB_PATH, get_user_profile, get_user_model, get_user_max_tokens, count_history, get_history_raw, get_summary, save_summary
+from database import (
+    DB_PATH, get_user_profile, get_user_model, get_user_max_tokens,
+    count_history, get_history_raw, get_summary, save_summary,
+)
 
+logger = logging.getLogger(__name__)
+
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+
+# Global async client — OpenAI-compatible endpoint
+mistral_client = AsyncOpenAI(
+    api_key=MISTRAL_API_KEY,
+    base_url="https://api.mistral.ai/v1",
+)
+
+WHISPER_MODEL = "whisper-large-v3-turbo"
+SUMMARY_TRIGGER = 20
+
+# ═══════════════════════════════════════════════════════════════════
+# MODEL REGISTRY — Unique keys, full Mistral lineup
+# ═══════════════════════════════════════════════════════════════════
 MODEL_REGISTRY: dict[str, dict] = {
+    # ── Production ─────────────────────────────────────────────
     "small": {
         "model_id": "mistral-small-latest",
         "type": "text",
         "tier": "production",
         "display": "Mistral Small 4",
         "ctx": 131_072,
-        "note": "Nhanh, rẻ — classifier và chat đơn giản",
+        "note": "Nhanh ~900 t/s, classifier & chat đơn giản",
+        "supports_reasoning_effort": True,  # NEW: Small 4 supports this
     },
     "large": {
         "model_id": "mistral-large-latest",
@@ -25,7 +51,8 @@ MODEL_REGISTRY: dict[str, dict] = {
         "tier": "production",
         "display": "Mistral Large 3",
         "ctx": 131_072,
-        "note": "Cân bằng hiệu năng — viết, dịch, đa ngôn ngữ",
+        "note": "Cân bằng hiệu năng, viết/dịch/đa ngôn ngữ",
+        "supports_reasoning_effort": False,
     },
     "coder": {
         "model_id": "codestral-latest",
@@ -33,52 +60,44 @@ MODEL_REGISTRY: dict[str, dict] = {
         "tier": "production",
         "display": "Codestral",
         "ctx": 256_000,
-        "note": "Chuyên code — 80+ ngôn ngữ lập trình",
+        "note": "Chuyên code 80+ ngôn ngữ, 256K context",
+        "supports_reasoning_effort": False,
     },
+    # ── Reasoning (NEW) ────────────────────────────────────────
+    "reason": {
+        "model_id": "magistral-medium-latest",
+        "type": "reasoning",
+        "tier": "production",
+        "display": "Magistral Medium",
+        "ctx": 40_960,
+        "note": "Deep reasoning, toán & logic, chain-of-thought",
+        "supports_reasoning_effort": True,
+    },
+    # ── Vision ─────────────────────────────────────────────────
     "vision": {
-        "model_id": "pixtral-12b-2409",
+        "model_id": "pixtral-large-latest",
         "type": "vision",
-        "tier": "preview",
-        "display": "Pixtral Vision",
+        "tier": "production",
+        "display": "Pixtral Large",
         "ctx": 131_072,
-        "note": "Model duy nhất hỗ trợ hình ảnh",
+        "note": "Vision mạnh nhất, OCR & phân tích hình ảnh",
+        "supports_reasoning_effort": False,
     },
 }
-
-ROUTE_MAP = {
-    "simple": "small",
-    "creative": "large",
-    "reasoning": "large",
-    "hard": "large",
-    "search": "small",
-}
-
-logger = logging.getLogger(__name__)
-
-MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
-
-# Global connection pool
-global_groq_client = AsyncOpenAI(api_key=os.environ.get("MISTRAL_API_KEY", ""), base_url="https://api.mistral.ai/v1")
-WHISPER_MODEL = "whisper-large-v3-turbo"
-SUMMARY_TRIGGER = 20
-
-# ═══════════════════════════════════════════════════════════════
-# FIX: Single MODEL_REGISTRY with UNIQUE keys
-# Previously had duplicate "small"/"large" keys → Python keeps
-# only the last value, breaking all routing logic.
-# Now each model has a unique key.
-# ═══════════════════════════════════════════════════════════════
-
 
 DEFAULT_MODEL_KEY = "large"
 VISION_MODEL_KEY = "vision"
 CLASSIFIER_MODEL_KEY = "small"
 
+# ═══════════════════════════════════════════════════════════════════
+# SMART ROUTING — Route query to optimal model
+# ═══════════════════════════════════════════════════════════════════
 ROUTE_MAP: dict[str, str] = {
     "simple": "small",
     "creative": "large",
-    "reasoning": "large",
-    "hard": "large",
+    "reasoning": "reason",   # NEW: Route to Magistral
+    "hard": "reason",        # NEW: Route to Magistral
+    "code": "coder",         # NEW: Route to Codestral
     "search": "small",
 }
 
@@ -92,26 +111,23 @@ _CLASSIFIER_PROMPT = """Classify the user message into exactly one category.
 Reply with ONLY one word from this list, nothing else.
 
 Categories:
-- simple : greetings, chitchat, yes/no, very short factual (name, date)
-- creative : writing, translation, summarization, brainstorming, roleplay,
-             long text analysis, summarize this, tóm tắt, phân tích đoạn văn
-- reasoning : math, logic, code, step-by-step analysis, comparison, explanation
-- hard : ambiguous complex questions, multi-domain, requires deep thinking
-- search : current events, prices, news, weather, "latest", "now", "today"
-           ONLY use this if the question requires real-time internet data
+- simple : greetings, chitchat, yes/no, very short factual
+- creative : writing, translation, summarization, brainstorming, roleplay
+- reasoning : math, logic, step-by-step analysis, comparison, explanation
+- code : programming, debugging, code generation, technical implementation
+- hard : ambiguous complex questions, multi-domain, deep thinking
+- search : current events, prices, news, weather, real-time data needed
 
 Message: {message}"""
 
 
 def _needs_realtime(text: str) -> bool:
-    text_lower = text.lower()
-    return any(kw in text_lower for kw in _REALTIME_KEYWORDS)
+    return any(kw in text.lower() for kw in _REALTIME_KEYWORDS)
 
 
 async def classify_query(user_text: str) -> str:
-    client = global_groq_client
     try:
-        resp = await client.chat.completions.create(
+        resp = await mistral_client.chat.completions.create(
             model=MODEL_REGISTRY[CLASSIFIER_MODEL_KEY]["model_id"],
             messages=[{
                 "role": "user",
@@ -128,55 +144,71 @@ async def classify_query(user_text: str) -> str:
 
 async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
     """
-    Priority order (per SPEC §4 + flow.md):
-    1. User manually set model (non-default) → use that
-    2. _needs_realtime → small (fast response)
-    3. Text > 500 chars, no ? → large (summarize)
-    4. classify_query via small → ROUTE_MAP
+    Smart routing priority:
+    1. User manually set model → use that
+    2. Realtime keywords → small (fast)
+    3. Code keywords → coder (Codestral)
+    4. Math/logic keywords → reason (Magistral)
+    5. Long text without ? → large (summarize)
+    6. LLM classifier → ROUTE_MAP
     """
     current_key = await get_user_model(user_id)
-    if current_key != DEFAULT_MODEL_KEY:
+    if current_key != DEFAULT_MODEL_KEY and current_key in MODEL_REGISTRY:
         return current_key, MODEL_REGISTRY[current_key]["model_id"]
 
-    # Priority 2: realtime check
+    text_lower = user_text.lower()
+
+    # Priority 2: realtime
     if _needs_realtime(user_text):
         return "small", MODEL_REGISTRY["small"]["model_id"]
 
-    # Priority 3: long text without question → summarize
+    # Priority 3: code detection → Codestral
+    code_keywords = {"code", "python", "javascript", "viết hàm", "debug", "function", "class ", "import ", "def ", "程式", "代碼"}
+    if any(kw in text_lower for kw in code_keywords):
+        return "coder", MODEL_REGISTRY["coder"]["model_id"]
+
+    # Priority 4: math/logic → Magistral
+    math_keywords = {"cộng", "trừ", "nhân", "chia", "tính", "đạo hàm", "tích phân", "chứng minh", "solve", "equation", "計算", "數學"}
+    if any(kw in text_lower for kw in math_keywords):
+        return "reason", MODEL_REGISTRY["reason"]["model_id"]
+
+    # Priority 5: long text → summarize with large
     if len(user_text) > 500 and "?" not in user_text and "？" not in user_text:
         return "large", MODEL_REGISTRY["large"]["model_id"]
 
-    # Priority 4: classifier
-    text_lower = user_text.lower()
-
-    # Fast-Path 1: Math → small (fast)
-    if any(kw in text_lower for kw in {"cộng", "trừ", "nhân", "chia", "tính", "+", "-", "*", "/", "đạo hàm", "tích phân"}):
-        return "small", MODEL_REGISTRY["small"]["model_id"]
-
-    # Fast-Path 2: Translation → large
-    if any(kw in text_lower for kw in {"dịch", "translate", "tiếng anh", "tiếng trung", "tiếng nhật"}):
+    # Priority 6: translation → large
+    if any(kw in text_lower for kw in {"dịch", "translate", "tiếng anh", "tiếng trung", "tiếng nhật", "翻譯"}):
         return "large", MODEL_REGISTRY["large"]["model_id"]
 
-    # Fallback to classifier
+    # Priority 7: classifier
     routed_key = await classify_query(user_text)
     return routed_key, MODEL_REGISTRY[routed_key]["model_id"]
 
 
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM PROMPT BUILDER
+# ═══════════════════════════════════════════════════════════════════
 async def build_system_prompt(user_id: str, model_key: str) -> str:
     base = get_system_prompt(model_key)
     profile = await get_user_profile(user_id)
     if not profile:
         return base
     lines: list[str] = []
-    if profile.get("name"): lines.append("用戶姓名：" + profile["name"])
-    if profile.get("occupation"): lines.append("職業：" + profile["occupation"])
-    if profile.get("learning"): lines.append("正在學習：" + profile["learning"])
-    if profile.get("notes"): lines.append("備註：" + profile["notes"])
+    if profile.get("name"):
+        lines.append("用戶姓名：" + profile["name"])
+    if profile.get("occupation"):
+        lines.append("職業：" + profile["occupation"])
+    if profile.get("learning"):
+        lines.append("正在學習：" + profile["learning"])
+    if profile.get("notes"):
+        lines.append("備註：" + profile["notes"])
     return base + "\n\n【用戶資料】\n" + "\n".join(lines)
 
 
+# ═══════════════════════════════════════════════════════════════════
+# AUTO-SUMMARIZE
+# ═══════════════════════════════════════════════════════════════════
 async def maybe_summarize(user_id: str) -> None:
-    """Auto-summarize every SUMMARY_TRIGGER messages."""
     count = await count_history(user_id)
     if count % SUMMARY_TRIGGER != 0:
         return
@@ -191,9 +223,8 @@ async def maybe_summarize(user_id: str) -> None:
         f"Tóm tắt trước đó: {prev_summary}\n\n"
         f"Hội thoại mới:\n{history_text}"
     )
-    client = global_groq_client
     try:
-        resp = await client.chat.completions.create(
+        resp = await mistral_client.chat.completions.create(
             model=MODEL_REGISTRY["small"]["model_id"],
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
@@ -206,7 +237,6 @@ async def maybe_summarize(user_id: str) -> None:
 
 
 async def get_history_with_summary(user_id: str) -> list[dict]:
-    """Return [summary_pair] + 5 most recent messages."""
     summary = await get_summary(user_id)
     recent = await get_history_raw(user_id, limit=5)
     if summary:
@@ -218,8 +248,10 @@ async def get_history_with_summary(user_id: str) -> list[dict]:
     return recent
 
 
+# ═══════════════════════════════════════════════════════════════════
+# MARKDOWN STRIPPER (for LINE plain text)
+# ═══════════════════════════════════════════════════════════════════
 def strip_markdown(text: str) -> str:
-    # Protect code blocks
     parts_text = re.split(r'(```.*?```)', text, flags=re.DOTALL)
     for i in range(0, len(parts_text), 2):
         p = parts_text[i]
@@ -233,12 +265,16 @@ def strip_markdown(text: str) -> str:
     return "".join(parts_text).strip()
 
 
+# ═══════════════════════════════════════════════════════════════════
+# CORE TEXT API — with web_search tool support
+# ═══════════════════════════════════════════════════════════════════
 async def call_mistral_text(
     history: list[dict],
     model_id: str,
     model_key: str = DEFAULT_MODEL_KEY,
     user_id: str | None = None,
     rag_chunks: list[dict] | None = None,
+    enable_web_search: bool = False,
 ) -> str:
     system = (
         await build_system_prompt(user_id, model_key)
@@ -246,71 +282,90 @@ async def call_mistral_text(
         else get_system_prompt(model_key)
     )
 
-    # Inject RAG context into system prompt if chunks present
+    # Inject RAG context
     if rag_chunks:
         rag_context = "\n\n".join(
             f"[Nguồn: {c['filename']} chunk {c['chunk_index']}]\n{c['content']}"
             for c in rag_chunks
         )
-        system = system + (
-            "\n\n"
-            "═══ QUAN TRỌNG: TÀI LIỆU THAM KHẢO ═══\n"
+        system += (
+            "\n\n═══ QUAN TRỌNG: TÀI LIỆU THAM KHẢO ═══\n"
             "Dưới đây là nội dung từ tài liệu của người dùng. "
-            "BẮT BUỘC tuân thủ các quy tắc sau:\n"
-            "1. Ưu tiên trả lời DỰA TRÊN nội dung tài liệu bên dưới.\n"
-            "2. Nếu câu trả lời CÓ trong tài liệu → trích dẫn và ghi rõ nguồn [Nguồn: tên_file].\n"
-            "3. Nếu câu trả lời KHÔNG CÓ trong tài liệu → nói rõ 'Tài liệu không đề cập' rồi mới bổ sung từ kiến thức chung.\n"
-            "4. KHÔNG BAO GIỜ bịa thông tin rồi gán cho tài liệu.\n"
+            "BẮT BUỘC tuân thủ:\n"
+            "1. Ưu tiên trả lời DỰA TRÊN tài liệu.\n"
+            "2. Có trong tài liệu → trích dẫn [Nguồn: tên_file].\n"
+            "3. Không có → nói rõ rồi bổ sung từ kiến thức chung.\n"
+            "4. KHÔNG bịa thông tin.\n"
             "═══════════════════════════════════════\n\n"
             f"{rag_context}"
         )
 
-    # Compound models require last message role = "user"
+    # Clean history — last message must be "user"
     clean_history = list(history)
     while clean_history and clean_history[-1]["role"] == "assistant":
         clean_history.pop()
 
-    # --- HOT-SWAP LANGUAGE FORCER ---
+    # Language forcer
     if user_id and clean_history and clean_history[-1]["role"] == "user":
         try:
             async with aiosqlite.connect(DB_PATH) as db:
-                async with db.execute("SELECT language FROM user_settings WHERE user_id = ?", (user_id,)) as cur:
+                async with db.execute(
+                    "SELECT language FROM user_settings WHERE user_id = ?",
+                    (user_id,),
+                ) as cur:
                     row = await cur.fetchone()
                     lang = row[0] if row else "vi"
-                    rule = "CRITICAL RULE: You MUST answer strictly in Vietnamese." if lang == "vi" else "CRITICAL RULE: You MUST answer strictly in Traditional Chinese (Taiwan)."
-                    clean_history[-1]["content"] = f"{clean_history[-1]['content']}\n\n[{rule}]"
+                    rule = (
+                        "CRITICAL RULE: You MUST answer strictly in Vietnamese."
+                        if lang == "vi"
+                        else "CRITICAL RULE: You MUST answer strictly in Traditional Chinese (Taiwan)."
+                    )
+                    clean_history[-1]["content"] += f"\n\n[{rule}]"
         except Exception:
             pass
 
-    # ═══════════════════════════════════════════════════════════
-    # FIX: Removed reasoning_effort entirely.
-    # mistral-large-latest does NOT support this parameter.
-    # Only mistral-small-latest (Small 4) and magistral-* do.
-    # Sending it to Large 3 causes HTTP 422.
-    # ═══════════════════════════════════════════════════════════
+    # Build extra kwargs
+    extra: dict = {}
 
-    # max_tokens: user override → model default
+    # NEW: web_search tool for realtime queries
+    if enable_web_search:
+        extra["tools"] = [{"type": "function", "function": {
+            "name": "web_search",
+            "description": "Search the web for current information",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        }}]
+
+    # max_tokens
     user_max = await get_user_max_tokens(user_id) if user_id else 800
-    max_tok = user_max if user_max != 800 else (
-        1500 if model_key in ("small", "large") else 800
-    )
+    max_tok = user_max if user_max != 800 else {
+        "small": 1500,
+        "large": 1500,
+        "coder": 2000,
+        "reason": 2000,
+        "vision": 800,
+    }.get(model_key, 800)
 
-    client = global_groq_client
     try:
-        resp = await client.chat.completions.create(
+        resp = await mistral_client.chat.completions.create(
             model=model_id,
             messages=[{"role": "system", "content": system}] + clean_history,
             temperature=0.6,
             max_tokens=max_tok,
+            **extra,
         )
-        return (resp.choices[0].message.content or "").strip()
+        raw = resp.choices[0].message.content or ""
+        return raw.strip()
     except Exception as e:
         err = str(e)
-        # Fallback for 400 errors
-        if "400" in err:
+        # Fallback to large
+        if model_id != MODEL_REGISTRY["large"]["model_id"]:
             fallback_id = MODEL_REGISTRY["large"]["model_id"]
             try:
-                resp = await client.chat.completions.create(
+                resp = await mistral_client.chat.completions.create(
                     model=fallback_id,
                     messages=[{"role": "system", "content": system}] + clean_history,
                     temperature=0.6,
@@ -322,12 +377,14 @@ async def call_mistral_text(
         return f"⚠️ 錯誤 [{model_id}]: {err[:150]}"
 
 
+# ═══════════════════════════════════════════════════════════════════
+# VISION API — Pixtral Large
+# ═══════════════════════════════════════════════════════════════════
 async def call_mistral_vision(image_b64: str) -> str:
     model_id = MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"]
     system = get_system_prompt(VISION_MODEL_KEY)
-    client = global_groq_client
     try:
-        resp = await client.chat.completions.create(
+        resp = await mistral_client.chat.completions.create(
             model=model_id,
             messages=[
                 {"role": "system", "content": system},
@@ -344,22 +401,26 @@ async def call_mistral_vision(image_b64: str) -> str:
                         },
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_b64}"
+                            },
                         },
                     ],
                 },
             ],
-            max_tokens=800,
+            max_tokens=1200,
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         return f"⚠️ 視覺錯誤: {str(e)[:150]}"
 
 
+# ═══════════════════════════════════════════════════════════════════
+# WHISPER STT (via Mistral /audio endpoint)
+# ═══════════════════════════════════════════════════════════════════
 async def call_groq_whisper(audio_bytes: bytes) -> str:
-    client = global_groq_client
     try:
-        result = await client.audio.transcriptions.create(
+        result = await mistral_client.audio.transcriptions.create(
             file=("audio.m4a", audio_bytes),
             model=WHISPER_MODEL,
         )
@@ -369,10 +430,9 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
 
 
 async def clean_transcript(transcript: str) -> str:
-    """Fix Whisper errors via large model."""
-    client = global_groq_client
+    """Fix Whisper errors using Large model."""
     try:
-        resp = await client.chat.completions.create(
+        resp = await mistral_client.chat.completions.create(
             model=MODEL_REGISTRY["large"]["model_id"],
             messages=[{
                 "role": "user",
@@ -380,9 +440,6 @@ async def clean_transcript(transcript: str) -> str:
                     "Day la transcript tu nhan dang giong noi tu dong, co the co loi nghe nham, "
                     "sai chinh ta, hoac tu bi thay the sai nghia.\n"
                     "Nhiem vu: sua lai cho dung nghia nhat co the, giu nguyen ngon ngu goc.\n"
-                    "Vi du loi thuong gap:\n"
-                    "- 'cung mot' co the la '14h' hoac so gio khac\n"
-                    "- 'thuc trinh' -> 'thuyet trinh'\n"
                     "Chi tra ve cau da sua, khong giai thich, khong them noi dung.\n\n"
                     f"Transcript: {transcript}"
                 ),
@@ -396,8 +453,10 @@ async def clean_transcript(transcript: str) -> str:
         return transcript
 
 
+# ═══════════════════════════════════════════════════════════════════
+# LINE MESSAGE SPLITTER
+# ═══════════════════════════════════════════════════════════════════
 def _split_reply(reply: str) -> list[str]:
-    """Split reply into LINE-compatible chunks (max 4990 chars, max 5 messages)."""
     chunks: list[str] = []
     while len(reply) > 4990:
         cut = reply.rfind(" ", 0, 4990)
