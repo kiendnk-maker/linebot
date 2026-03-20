@@ -95,7 +95,7 @@ async def get_user_model(user_id: str) -> str:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT model_key FROM user_settings WHERE user_id = ?", (user_id,)) as cur:
             row = await cur.fetchone()
-    key = row[0] if row else "llama70b"
+    key = row[0] if row else "large"
     try:
         from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
         ans = key if key in MODEL_REGISTRY else DEFAULT_MODEL_KEY

@@ -60,19 +60,19 @@ async def handle_command(user_id: str, text: str) -> str | None:
 
     if cmd == "dev":
         if not arg:
-            return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /dev Viết hàm Python tính dãy Fibonacci"
+            return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /coder Viết hàm Python tính dãy Fibonacci"
         return await run_multi_agent_workflow(user_id, arg)
 
     # ── PREFERENCES & SYSTEM ───────────────────────────────────────────────
     if cmd == "vi":
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute("INSERT INTO user_settings (user_id, model_key, language) VALUES (?, 'llama70b', ?) ON CONFLICT(user_id) DO UPDATE SET language=?", (user_id, "vi", "vi"))
+            await db.execute("INSERT INTO user_settings (user_id, model_key, language) VALUES (?, 'large', ?) ON CONFLICT(user_id) DO UPDATE SET language=?", (user_id, "vi", "vi"))
             await db.commit()
         return "🇻🇳 Đã chuyển đổi ngôn ngữ sang Tiếng Việt. Từ giờ tôi sẽ trả lời bạn 100% bằng Tiếng Việt."
 
     if cmd == "tw":
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute("INSERT INTO user_settings (user_id, model_key, language) VALUES (?, 'llama70b', ?) ON CONFLICT(user_id) DO UPDATE SET language=?", (user_id, "tw", "tw"))
+            await db.execute("INSERT INTO user_settings (user_id, model_key, language) VALUES (?, 'large', ?) ON CONFLICT(user_id) DO UPDATE SET language=?", (user_id, "tw", "tw"))
             await db.commit()
         return "🇹🇼 已將語言切換為繁體中文。從現在起，我將只使用繁體中文回答。"
 

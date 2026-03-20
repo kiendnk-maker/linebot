@@ -94,11 +94,11 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
 }
 
-DEFAULT_MODEL_KEY    = "llama70b"
 
-VISION_MODEL_KEY     = "scout"
 
-CLASSIFIER_MODEL_KEY = "llama8b"
+
+
+
 
 ROUTE_MAP: dict[str, str] = {
     "simple":    "llama8b",
@@ -435,15 +435,38 @@ def _split_reply(reply: str) -> list[str]:
 
 
 
-MODEL_REGISTRY = {
-    "llama8b": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay Llama 8B"},
-    "llama70b": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay Llama 70B"},
-    "gpt20b": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay GPT 20B"},
-    "gpt120b": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay GPT 120B"},
-    "compound": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay Compound"},
-    "compound-mini": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay Compound Mini"},
-    "qwen": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "preview", "note": "Thay Qwen"},
-    "kimi": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "preview", "note": "Thay Kimi"},
-    "dev": {"model_id": "codestral-latest", "type": "text", "display": "Codestral", "tier": "production", "note": "Thay Dev"},
-    "scout": {"model_id": "pixtral-12b-2409", "type": "vision", "display": "Pixtral Vision", "tier": "preview", "note": "Thay Scout"}
 }
+
+MODEL_REGISTRY = {
+    "small": {
+        "model_id": "mistral-small-latest",
+        "type": "text",
+        "display": "Mistral Small 4",
+        "tier": "production",
+        "note": "最快，超便宜 — 用於日常對話與輕量任務"
+    },
+    "large": {
+        "model_id": "mistral-large-latest",
+        "type": "text",
+        "display": "Mistral Large 3",
+        "tier": "production",
+        "note": "最強推理，均衡性能 — 適合寫作、翻譯、複雜邏輯"
+    },
+    "coder": {
+        "model_id": "codestral-latest",
+        "type": "text",
+        "display": "Codestral",
+        "tier": "production",
+        "note": "專為程式碼生成、重構與 Debug 設計"
+    },
+    "vision": {
+        "model_id": "pixtral-12b-2409",
+        "type": "vision",
+        "display": "Pixtral Vision",
+        "tier": "preview",
+        "note": "精準視覺模型，支援圖片、圖表與 OCR 分析"
+    }
+}
+DEFAULT_MODEL_KEY = "large"
+VISION_MODEL_KEY = "vision"
+CLASSIFIER_MODEL_KEY = "small"
