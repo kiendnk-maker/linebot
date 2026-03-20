@@ -14,54 +14,83 @@ from rag_core import process_file_upload, list_rag_docs, delete_rag_doc, clear_r
 from agents_workflow import run_pro_workflow, run_agentic_loop, run_multi_agent_workflow, run_debate
 
 def _models_list_text() -> str:
-    prod_lines: list[str] = []
-    prev_lines: list[str] = []
-    for key, cfg in MODEL_REGISTRY.items():
-        icon = {"vision": "\U0001f441", "reasoning": "\U0001f9e0", "text": "\U0001f4ac"}.get(cfg["type"], "\U0001f4ac")
-        line = f"{icon} /{key} \u2014 {cfg['display']}\n   {cfg['note']}"
-        if cfg["tier"] == "production":
-            prod_lines.append(line)
-        else:
-            prev_lines.append(line)
-    sections = [
-        "\U0001f4cb ULTRA BOLT \u2014 DANH S\u00c1CH L\u1ec6NH\n",
-        "\u2501\u2501 Models \u2501\u2501",
-        *prod_lines,
-    ]
-    if prev_lines:
-        sections.append("\n\u2500\u2500 Preview \u2500\u2500")
-        sections.extend(prev_lines)
-    sections.extend([
-        "\n\u2501\u2501 Ch\u1ebf \u0111\u1ed9 AI \u2501\u2501",
-        "\U0001f916 /auto \u2014 T\u1ef1 ch\u1ecdn model t\u1ed1i \u01b0u (m\u1eb7c \u0111\u1ecbnh)",
-        "\U0001f9e0 /pro <c\u00e2u h\u1ecfi> \u2014 Deep Thinking (Magistral \u2192 Large)",
-        "\u2694\ufe0f /debate <c\u00e2u h\u1ecfi> \u2014 2 AI tranh lu\u1eadn + Judge",
-        "\U0001f916 /agent <nhi\u1ec7m v\u1ee5> \u2014 Agent t\u1ef1 tr\u1ecb + tool calling",
-        "\U0001f4bb /coder <y\u00eau c\u1ea7u> \u2014 3-agent: Plan \u2192 Code \u2192 Review",
-        "\n\u2501\u2501 Google Workspace \u2501\u2501",
-        "\U0001f510 /login \u2014 K\u1ebft n\u1ed1i Google",
-        "\U0001f4ec /ls mail \u2014 Xem h\u1ed9p th\u01b0",
-        "\U0001f4e7 /mail <s\u1ed1> \u2014 \u0110\u1ecdc + t\u00f3m t\u1eaft email",
-        "\U0001f4c5 /cal \u2014 Xem l\u1ecbch",
-        "\U0001f4c5 /cal add H\u1ecdp 3pm th\u1ee9 6 \u2014 Th\u00eam l\u1ecbch",
-        "\U0001f6ab /block <t\u1eeb> \u2014 \u1ea8n mail spam",
-        "\n\u2501\u2501 RAG (T\u00e0i li\u1ec7u) \u2501\u2501",
-        "\U0001f4c4 G\u1eedi file PDF/TXT/DOCX \u2192 t\u1ef1 l\u01b0u v\u00e0o KB",
-        "\U0001f4c2 /rag list \u2014 Xem file",
-        "\U0001f5d1 /rag clear \u2014 Xo\u00e1 t\u1ea5t c\u1ea3",
-        "\U0001f515 /rag off | /rag on",
-        "\n\u2501\u2501 C\u00e1 nh\u00e2n \u2501\u2501",
-        "\U0001f464 /profile \u2014 Xem/c\u1eadp nh\u1eadt th\u00f4ng tin",
-        "\u23f0 /remind 20:00 u\u1ed1ng thu\u1ed1c",
-        "\U0001f4cb /remind list \u2014 Xem nh\u1eafc nh\u1edf",
-        "\n\u2501\u2501 C\u00e0i \u0111\u1eb7t \u2501\u2501",
-        "\U0001f1fb\U0001f1f3 /vi | \U0001f1f9\U0001f1fc /tw \u2014 Ng\u00f4n ng\u1eef",
-        "\U0001f4cf /long | /short | /tokens",
-        "\U0001f5d1 /clear \u2014 Xo\u00e1 l\u1ecbch s\u1eed",
-        "\U0001f4b0 /mn \u2014 Chi ti\u00eau | \U0001f4ca /usage \u2014 API stats",
-        "\U0001f500 /model <t\u00ean> | /auto",
-    ])
-    return "\n".join(sections)
+    return (
+        "📋 ULTRA BOLT — DANH SÁCH LỆNH
+"
+        "
+"
+        "━━ Models ━━
+"
+        "💬 /small — Mistral Small 4
+"
+        "💬 /large — Mistral Large 3
+"
+        "💬 /coder — Codestral (code)
+"
+        "🧠 /reason — Magistral Medium (reasoning)
+"
+        "👁 /vision — Pixtral Large (hình ảnh)
+"
+        "
+"
+        "━━ Chế độ AI ━━
+"
+        "🤖 /auto — Tự chọn model tối ưu
+"
+        "🧠 /pro <câu hỏi> — Deep Thinking
+"
+        "⚔️ /debate <câu hỏi> — 2 AI tranh luận
+"
+        "🤖 /agent <nhiệm vụ> — Agent + tools
+"
+        "💻 /coder <yêu cầu> — Plan→Code→Review
+"
+        "
+"
+        "━━ Google Workspace ━━
+"
+        "🔐 /login — Kết nối Google
+"
+        "📬 /ls mail [trang] [Nd] — Xem hộp thư
+"
+        "📧 /mail <số> — Đọc + tóm tắt
+"
+        "📅 /cal — Xem lịch | /cal add ...
+"
+        "🚫 /block <từ> | /unblock <từ>
+"
+        "
+"
+        "━━ RAG ━━
+"
+        "📄 Gửi PDF/TXT/DOCX → auto lưu KB
+"
+        "📂 /rag list | /rag clear | /rag off
+"
+        "
+"
+        "━━ Cá nhân ━━
+"
+        "👤 /profile — Xem/sửa thông tin
+"
+        "⏰ /remind HH:MM nội dung
+"
+        "📋 /remind list | /remind <id> cancel
+"
+        "
+"
+        "━━ Cài đặt ━━
+"
+        "🇻🇳 /vi | 🇹🇼 /tw — Ngôn ngữ
+"
+        "📏 /long | /short | /tokens
+"
+        "🗑 /clear — Xoá lịch sử
+"
+        "💰 /mn — Chi tiêu | 📊 /usage
+"
+        "🔀 /model <tên> | /auto"
+    )
 
 async def handle_command(user_id: str, text: str) -> str | None:
     if not text.startswith("/"):
