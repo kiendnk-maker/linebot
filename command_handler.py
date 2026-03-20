@@ -1,4 +1,5 @@
 import re
+from tracker_core import get_usage_report
 import aiosqlite
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -76,6 +77,11 @@ async def handle_command(user_id: str, text: str) -> str | None:
             await db.commit()
         return "🇹🇼 已將語言切換為繁體中文。從現在起，我將只使用繁體中文回答。"
 
+    
+    if cmd == "usage":
+        report = await get_usage_report()
+        await line_bot_api.reply_message(event.reply_token, TextSendMessage(text=report))
+        return True
     if cmd == "clear":
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))

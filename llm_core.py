@@ -1,3 +1,4 @@
+from tracker_core import log_usage
 import os
 import re
 import json
