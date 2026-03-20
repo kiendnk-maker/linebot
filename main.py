@@ -320,3 +320,5 @@ async def _process_event_inner(event: MessageEvent) -> None:
                     logger.error(f"Push fallback failed | user={user_id} | {pe}")
 
 # Force update to clear Mistral 422 cache
+
+# Fixed Enum string 'none' for Mistral API validation
