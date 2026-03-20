@@ -58,7 +58,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
             return "⚠️ Vui lòng nhập nhiệm vụ. Ví dụ: /agent Bây giờ là mấy giờ? Tính giúp tôi 12345 * 6789"
         return await run_agentic_loop(user_id, arg)
 
-    if cmd == "dev":
+    if cmd == "coder":
         if not arg:
             return "⚠️ Vui lòng nhập yêu cầu. Ví dụ: /coder Viết hàm Python tính dãy Fibonacci"
         return await run_multi_agent_workflow(user_id, arg)
