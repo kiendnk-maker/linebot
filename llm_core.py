@@ -5,7 +5,7 @@ import httpx
 import aiosqlite
 import logging
 import base64
-from groq import AsyncGroq
+from openai import AsyncOpenAI
 from prompts import get_system_prompt
 from database import DB_PATH, get_user_profile, get_user_model, get_user_max_tokens, count_history, get_history_raw, get_summary, save_summary
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 
 # Khởi tạo Connection Pool Toàn cục
-global_groq_client = AsyncGroq(api_key=MISTRAL_API_KEY, timeout=20.0, max_retries=2)
+global_groq_client = AsyncOpenAI(api_key=os.environ.get("MISTRAL_API_KEY", ""), base_url="https://api.mistral.ai/v1")
 
 WHISPER_MODEL   = "whisper-large-v3-turbo"
 

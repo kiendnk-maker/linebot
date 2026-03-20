@@ -7,7 +7,7 @@ import asyncio
 import aiosqlite
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from groq import AsyncGroq
+from openai import AsyncOpenAI
 from linebot.v3.messaging import AsyncApiClient, AsyncMessagingApi, PushMessageRequest, TextMessage
 
 from database import DB_PATH, save_reminder
@@ -16,7 +16,7 @@ import main
 
 TZ = ZoneInfo("Asia/Taipei")
 logger = logging.getLogger(__name__)
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 
 def _next_fire(fire_at: int, repeat: str) -> int:
     """Calculate next fire timestamp for repeating reminders — no dateutil dependency."""
@@ -76,7 +76,7 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
     tomorrow_str = (now_dt + timedelta(days=1)).strftime("%d/%m/%Y")
 
     async with httpx.AsyncClient() as http:
-        client = AsyncGroq(api_key=GROQ_API_KEY, http_client=http)
+        client = AsyncOpenAI(api_key=os.environ.get("MISTRAL_API_KEY", ""), base_url="https://api.mistral.ai/v1")
         try:
             resp = await client.chat.completions.create(
                 model=MODEL_REGISTRY["llama8b"]["model_id"],
