@@ -21,7 +21,7 @@ SUMMARY_TRIGGER = 20
 
 MODEL_REGISTRY: dict[str, dict] = {
     "llama8b": {
-        "model_id": "llama-3.1-8b-instant",
+        "model_id": "mistral-small-latest",
         "type":    "text",
         "tier":    "production",
         "display": "LLaMA 3.1 8B",
@@ -29,7 +29,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "note":    "最快 ~900 t/s，超便宜 — 用於 classifier 和簡單對話",
     },
     "llama70b": {
-        "model_id": "llama-3.3-70b-versatile",
+        "model_id": "mistral-large-latest",
         "type":    "text",
         "tier":    "production",
         "display": "LLaMA 3.3 70B",
