@@ -318,3 +318,5 @@ async def _process_event_inner(event: MessageEvent) -> None:
                     await line_api.push_message(PushMessageRequest(to=user_id, messages=[TextMessage(text=fb)]))
                 except Exception as pe:
                     logger.error(f"Push fallback failed | user={user_id} | {pe}")
+
+# Force update to clear Mistral 422 cache
