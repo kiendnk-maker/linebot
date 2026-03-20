@@ -49,13 +49,11 @@ def get_system_prompt(model_key: str) -> str:
     Returns the appropriate system prompt based on the routed model.
     Call this instead of using SYSTEM_PROMPT directly.
     """
-    suffix_map: dict[str, str] = {
-        "qwen":          REASONING_SUFFIX,
-        "gpt120b":       REASONING_SUFFIX,
-        "gpt20b":        REASONING_SUFFIX,
-        "llama70b":      CREATIVE_SUFFIX,
-        "compound":      SEARCH_SUFFIX,
-        "compound-mini": SEARCH_SUFFIX,
+        suffix_map: dict[str, str] = {
+        "large":         REASONING_SUFFIX,
+        "coder":         REASONING_SUFFIX,
+        "small":         CREATIVE_SUFFIX,
+        "vision":        CREATIVE_SUFFIX,
     }
     suffix = suffix_map.get(model_key, "")
     return SYSTEM_PROMPT + suffix
