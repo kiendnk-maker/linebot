@@ -69,7 +69,9 @@ async def embed_text(text: str) -> list[float]:
                 return resp.json()["data"][0]["embedding"]
         except Exception as e:
             print(f"Lỗi Embeddings: {e}")
-        return []async def process_file_upload(user_id: str, file_bytes: bytes, filename: str) -> str:
+        return []
+
+async def process_file_upload(user_id: str, file_bytes: bytes, filename: str) -> str:
     """
     File ingest for RAG — supports .pdf, .txt, .docx
     Guard 1: supported extension  (caller checks)
