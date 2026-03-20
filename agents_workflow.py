@@ -193,11 +193,11 @@ async def run_debate(user_id: str, topic: str, rounds: int = 2) -> str:
     try:
         for i in range(rounds):
             prompt_a = f"Bạn là AI Ủng Hộ (Proponent). Chủ đề: {topic}. Hãy đưa ra luận điểm sắc bén. Nếu đối thủ đã nói, hãy phản bác mạnh mẽ. Lịch sử tranh luận:\n{transcript}"
-            reply_a = await call_mistral_text(prompt_a, model=model_a, max_tokens=600)
+            reply_a = await call_mistral_text(prompt_a, model_id=model_a, max_tokens=600)
             transcript += f"🟢 [AI Ủng Hộ]:\n{reply_a}\n\n"
             
             prompt_b = f"Bạn là AI Phản Đối (Opponent). Chủ đề: {topic}. Hãy phản bác gay gắt luận điểm của AI Ủng Hộ và đưa ra góc nhìn trái chiều. Lịch sử tranh luận:\n{transcript}"
-            reply_b = await call_mistral_text(prompt_b, model=model_b, max_tokens=600)
+            reply_b = await call_mistral_text(prompt_b, model_id=model_b, max_tokens=600)
             transcript += f"🔴 [AI Phản Đối]:\n{reply_b}\n\n"
             
         transcript += "🏁 KẾT THÚC TRANH LUẬN."
