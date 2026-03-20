@@ -11,102 +11,65 @@ from prompts import get_system_prompt
 from database import DB_PATH, get_user_profile, get_user_model, get_user_max_tokens, count_history, get_history_raw, get_summary, save_summary
 
 logger = logging.getLogger(__name__)
+
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 
-# Khởi tạo Connection Pool Toàn cục
+# Global connection pool
 global_groq_client = AsyncOpenAI(api_key=os.environ.get("MISTRAL_API_KEY", ""), base_url="https://api.mistral.ai/v1")
-
-WHISPER_MODEL   = "whisper-large-v3-turbo"
-
+WHISPER_MODEL = "whisper-large-v3-turbo"
 SUMMARY_TRIGGER = 20
 
+# ═══════════════════════════════════════════════════════════════
+# FIX: Single MODEL_REGISTRY with UNIQUE keys
+# Previously had duplicate "small"/"large" keys → Python keeps
+# only the last value, breaking all routing logic.
+# Now each model has a unique key.
+# ═══════════════════════════════════════════════════════════════
 MODEL_REGISTRY: dict[str, dict] = {
     "small": {
         "model_id": "mistral-small-latest",
-        "type":    "text",
-        "tier":    "production",
-        "display": "LLaMA 3.1 8B",
-        "ctx":     131_072,
-        "note":    "最快 ~900 t/s，超便宜 — 用於 classifier 和簡單對話",
+        "type": "text",
+        "tier": "production",
+        "display": "Mistral Small 4",
+        "ctx": 131_072,
+        "note": "Nhanh, rẻ — dùng cho classifier và chat đơn giản",
     },
     "large": {
         "model_id": "mistral-large-latest",
-        "type":    "text",
-        "tier":    "production",
-        "display": "LLaMA 3.3 70B",
-        "ctx":     131_072,
-        "note":    "均衡性能，寫作、翻譯、多語言",
+        "type": "text",
+        "tier": "production",
+        "display": "Mistral Large 3",
+        "ctx": 131_072,
+        "note": "Cân bằng hiệu năng — viết, dịch, đa ngôn ngữ",
     },
-    "small": {
-        "model_id": "openai/gpt-oss-20b",
-        "type":    "reasoning",
-        "tier":    "production",
-        "display": "GPT-OSS 20B",
-        "ctx":     131_072,
-        "note":    "超快 ~1000 t/s，輕量推理",
-    },
-    "large": {
-        "model_id": "openai/gpt-oss-120b",
-        "type":    "reasoning",
-        "tier":    "production",
-        "display": "GPT-OSS 120B",
-        "ctx":     131_072,
-        "note":    "最強推理，~500 t/s",
-    },
-    "large": {
-        "model_id": "groq/compound",
-        "type":    "text",
-        "tier":    "production",
-        "display": "Groq Compound（網路搜尋）",
-        "ctx":     131_072,
-        "note":    "內建網路搜尋 + 程式執行，最多10次工具呼叫",
-    },
-    "small": {
-        "model_id": "groq/compound-mini",
-        "type":    "text",
-        "tier":    "production",
-        "display": "Groq Compound Mini",
-        "ctx":     131_072,
-        "note":    "Compound 輕量版，單次工具呼叫，速度快3倍",
+    "coder": {
+        "model_id": "codestral-latest",
+        "type": "text",
+        "tier": "production",
+        "display": "Codestral",
+        "ctx": 256_000,
+        "note": "Chuyên code — 80+ ngôn ngữ lập trình",
     },
     "vision": {
-        "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
-        "type":    "vision",
-        "tier":    "preview",
-        "display": "LLaMA 4 Scout（視覺）",
-        "ctx":     131_072,
-        "note":    "唯一視覺模型，低延遲",
-    },
-    "small": {
-        "model_id": "qwen/qwen3-32b",
-        "type":    "reasoning",
-        "tier":    "preview",
-        "display": "Qwen3 32B",
-        "ctx":     131_072,
-        "note":    "推理 + thinking mode，多語言強",
-    },
-    "large": {
-        "model_id": "moonshotai/kimi-k2-instruct-0905",
-        "type":    "text",
-        "tier":    "preview",
-        "display": "Kimi K2 0905",
-        "ctx":     262_144,
-        "note":    "最長 context 256K，agentic coding",
+        "model_id": "pixtral-12b-2409",
+        "type": "vision",
+        "tier": "preview",
+        "display": "Pixtral Vision",
+        "ctx": 131_072,
+        "note": "Model duy nhất hỗ trợ hình ảnh",
     },
 }
 
-DEFAULT_MODEL_KEY    = "large"
-
-VISION_MODEL_KEY     = "vision"
-
+DEFAULT_MODEL_KEY = "large"
+VISION_MODEL_KEY = "vision"
 CLASSIFIER_MODEL_KEY = "small"
 
 ROUTE_MAP: dict[str, str] = {
-    "simple":    "small",
-    "creative":  "large",
-    "reasoning": "small",
-    "hard":      "large",
-    "search":    "small",
+    "simple": "small",
+    "creative": "large",
+    "reasoning": "large",
+    "hard": "large",
+    "search": "small",
 }
 
 _REALTIME_KEYWORDS = (
@@ -119,51 +82,53 @@ _CLASSIFIER_PROMPT = """Classify the user message into exactly one category.
 Reply with ONLY one word from this list, nothing else.
 
 Categories:
-- simple    : greetings, chitchat, yes/no, very short factual (name, date)
-- creative  : writing, translation, summarization, brainstorming, roleplay,
-              long text analysis, summarize this, tóm tắt, phân tích đoạn văn
+- simple : greetings, chitchat, yes/no, very short factual (name, date)
+- creative : writing, translation, summarization, brainstorming, roleplay,
+             long text analysis, summarize this, tóm tắt, phân tích đoạn văn
 - reasoning : math, logic, code, step-by-step analysis, comparison, explanation
-- hard      : ambiguous complex questions, multi-domain, requires deep thinking
-- search    : current events, prices, news, weather, "latest", "now", "today"
-              ONLY use this if the question requires real-time internet data
+- hard : ambiguous complex questions, multi-domain, requires deep thinking
+- search : current events, prices, news, weather, "latest", "now", "today"
+           ONLY use this if the question requires real-time internet data
 
 Message: {message}"""
+
 
 def _needs_realtime(text: str) -> bool:
     text_lower = text.lower()
     return any(kw in text_lower for kw in _REALTIME_KEYWORDS)
 
+
 async def classify_query(user_text: str) -> str:
-    if True:
-        client = global_groq_client
-        try:
-            resp = await client.chat.completions.create(
-                model=MODEL_REGISTRY[CLASSIFIER_MODEL_KEY]["model_id"],
-                messages=[{
-                    "role": "user",
-                    "content": _CLASSIFIER_PROMPT.format(message=user_text[:400]),
-                }],
-                temperature=0.0,
-                max_tokens=3,
-            )
-            category = resp.choices[0].message.content.strip().lower()
-            return ROUTE_MAP.get(category, DEFAULT_MODEL_KEY)
-        except Exception:
-            return DEFAULT_MODEL_KEY
+    client = global_groq_client
+    try:
+        resp = await client.chat.completions.create(
+            model=MODEL_REGISTRY[CLASSIFIER_MODEL_KEY]["model_id"],
+            messages=[{
+                "role": "user",
+                "content": _CLASSIFIER_PROMPT.format(message=user_text[:400]),
+            }],
+            temperature=0.0,
+            max_tokens=3,
+        )
+        category = resp.choices[0].message.content.strip().lower()
+        return ROUTE_MAP.get(category, DEFAULT_MODEL_KEY)
+    except Exception:
+        return DEFAULT_MODEL_KEY
+
 
 async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
     """
     Priority order (per SPEC §4 + flow.md):
-      1. User manually set model (non-default) → use that
-      2. _needs_realtime → compound-mini   (check BEFORE len>500 to avoid false positive)
-      3. Text > 500 chars, no ? → llama70b (summarize)
-      4. classify_query via llama8b → ROUTE_MAP
+    1. User manually set model (non-default) → use that
+    2. _needs_realtime → small (fast response)
+    3. Text > 500 chars, no ? → large (summarize)
+    4. classify_query via small → ROUTE_MAP
     """
     current_key = await get_user_model(user_id)
     if current_key != DEFAULT_MODEL_KEY:
         return current_key, MODEL_REGISTRY[current_key]["model_id"]
 
-    # Priority 2: realtime check BEFORE len>500 (avoid "hôm nay" in reminder context — see SPEC §16.7)
+    # Priority 2: realtime check
     if _needs_realtime(user_text):
         return "small", MODEL_REGISTRY["small"]["model_id"]
 
@@ -173,40 +138,41 @@ async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
 
     # Priority 4: classifier
     text_lower = user_text.lower()
-    # Fast-Path 1: Toán học -> Auto Qwen
+
+    # Fast-Path 1: Math → small (fast)
     if any(kw in text_lower for kw in {"cộng", "trừ", "nhân", "chia", "tính", "+", "-", "*", "/", "đạo hàm", "tích phân"}):
         return "small", MODEL_REGISTRY["small"]["model_id"]
-        
-    # Fast-Path 2: Dịch thuật -> Auto LLaMA 70B
+
+    # Fast-Path 2: Translation → large
     if any(kw in text_lower for kw in {"dịch", "translate", "tiếng anh", "tiếng trung", "tiếng nhật"}):
         return "large", MODEL_REGISTRY["large"]["model_id"]
-        
-    # Nếu không khớp Regex thì mới gọi Classifier
+
+    # Fallback to classifier
     routed_key = await classify_query(user_text)
     return routed_key, MODEL_REGISTRY[routed_key]["model_id"]
 
+
 async def build_system_prompt(user_id: str, model_key: str) -> str:
-    base    = get_system_prompt(model_key)
+    base = get_system_prompt(model_key)
     profile = await get_user_profile(user_id)
     if not profile:
         return base
     lines: list[str] = []
-    if profile.get("name"):       lines.append("用戶姓名：" + profile["name"])
-    if profile.get("occupation"): lines.append("職業："     + profile["occupation"])
-    if profile.get("learning"):   lines.append("正在學習：" + profile["learning"])
-    if profile.get("notes"):      lines.append("備註："     + profile["notes"])
+    if profile.get("name"): lines.append("用戶姓名：" + profile["name"])
+    if profile.get("occupation"): lines.append("職業：" + profile["occupation"])
+    if profile.get("learning"): lines.append("正在學習：" + profile["learning"])
+    if profile.get("notes"): lines.append("備註：" + profile["notes"])
     return base + "\n\n【用戶資料】\n" + "\n".join(lines)
+
 
 async def maybe_summarize(user_id: str) -> None:
     """Auto-summarize every SUMMARY_TRIGGER messages."""
     count = await count_history(user_id)
     if count % SUMMARY_TRIGGER != 0:
         return
-
     rows = await get_history_raw(user_id, limit=40)
     if not rows:
         return
-
     prev_summary = await get_summary(user_id)
     history_text = "\n".join(f"{m['role']}: {m['content']}" for m in rows)
     prompt = (
@@ -215,47 +181,47 @@ async def maybe_summarize(user_id: str) -> None:
         f"Tóm tắt trước đó: {prev_summary}\n\n"
         f"Hội thoại mới:\n{history_text}"
     )
+    client = global_groq_client
+    try:
+        resp = await client.chat.completions.create(
+            model=MODEL_REGISTRY["small"]["model_id"],
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=200,
+        )
+        new_summary = resp.choices[0].message.content or ""
+        await save_summary(user_id, new_summary)
+    except Exception:
+        pass
 
-    if True:
-        client = global_groq_client
-        try:
-            resp = await client.chat.completions.create(
-                model=MODEL_REGISTRY["small"]["model_id"],
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=200,
-            )
-            new_summary = resp.choices[0].message.content or ""
-            await save_summary(user_id, new_summary)
-        except Exception:
-            pass
 
 async def get_history_with_summary(user_id: str) -> list[dict]:
     """Return [summary_pair] + 5 most recent messages."""
     summary = await get_summary(user_id)
-    recent  = await get_history_raw(user_id, limit=5)
+    recent = await get_history_raw(user_id, limit=5)
     if summary:
         return [
-            {"role": "user",      "content": f"[Tóm tắt hội thoại trước: {summary}]"},
+            {"role": "user", "content": f"[Tóm tắt hội thoại trước: {summary}]"},
             {"role": "assistant", "content": "Đã hiểu context."},
             *recent,
         ]
     return recent
 
-def strip_markdown(text: str) -> str:
 
-    # Tách các khối code (```...```) ra để bảo vệ tuyệt đối
+def strip_markdown(text: str) -> str:
+    # Protect code blocks
     parts_text = re.split(r'(```.*?```)', text, flags=re.DOTALL)
     for i in range(0, len(parts_text), 2):
         p = parts_text[i]
         p = re.sub(r"<think>.*?</think>", "", p, flags=re.DOTALL)
-        p = re.sub(r"\*\*(.*?)\*\*", r"\1", p)                 # Xóa dấu in đậm
-        p = re.sub(r"^#{1,6}\s+", "", p, flags=re.MULTILINE)     # Xóa dấu heading
-        p = re.sub(r"^[\-\*]\s+", "• ", p, flags=re.MULTILINE)   # Đổi list thành dấu chấm tròn
-        p = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", p)  # Rút gọn Link
+        p = re.sub(r"\*\*(.*?)\*\*", r"\1", p)
+        p = re.sub(r"^#{1,6}\s+", "", p, flags=re.MULTILINE)
+        p = re.sub(r"^[-\*]\s+", "• ", p, flags=re.MULTILINE)
+        p = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", p)
         p = re.sub(r"\n{3,}", "\n\n", p)
         parts_text[i] = p
     return "".join(parts_text).strip()
+
 
 async def call_mistral_text(
     history: list[dict],
@@ -289,7 +255,7 @@ async def call_mistral_text(
             f"{rag_context}"
         )
 
-    # Compound models require last message role = "user" (SPEC §16.1)
+    # Compound models require last message role = "user"
     clean_history = list(history)
     while clean_history and clean_history[-1]["role"] == "assistant":
         clean_history.pop()
@@ -301,125 +267,124 @@ async def call_mistral_text(
                 async with db.execute("SELECT language FROM user_settings WHERE user_id = ?", (user_id,)) as cur:
                     row = await cur.fetchone()
                     lang = row[0] if row else "vi"
-            
-            rule = "CRITICAL RULE: You MUST answer strictly in Vietnamese." if lang == "vi" else "CRITICAL RULE: You MUST answer strictly in Traditional Chinese (Taiwan)."
-            clean_history[-1]["content"] = f"{clean_history[-1]['content']}\n\n[{rule}]"
+                    rule = "CRITICAL RULE: You MUST answer strictly in Vietnamese." if lang == "vi" else "CRITICAL RULE: You MUST answer strictly in Traditional Chinese (Taiwan)."
+                    clean_history[-1]["content"] = f"{clean_history[-1]['content']}\n\n[{rule}]"
         except Exception:
             pass
-    # --------------------------------
 
-    # )
-    extra: dict = {}
-    if model_id == MODEL_REGISTRY["large"]["model_id"]:
-        extra["reasoning_effort"] = "low"
+    # ═══════════════════════════════════════════════════════════
+    # FIX: Removed reasoning_effort entirely.
+    # mistral-large-latest does NOT support this parameter.
+    # Only mistral-small-latest (Small 4) and magistral-* do.
+    # Sending it to Large 3 causes HTTP 422.
+    # ═══════════════════════════════════════════════════════════
 
-    # max_tokens: user override → model default (SPEC §11)
+    # max_tokens: user override → model default
     user_max = await get_user_max_tokens(user_id) if user_id else 800
-    max_tok  = user_max if user_max != 800 else (
-        1500 if model_key in ("small", "large", "small") else 800
+    max_tok = user_max if user_max != 800 else (
+        1500 if model_key in ("small", "large") else 800
     )
 
-    if True:
-        client = global_groq_client
-        try:
-            resp = await client.chat.completions.create(
-                model=model_id,
-                messages=[{"role": "system", "content": system}] + clean_history,
-                temperature=0.6,
-                max_tokens=max_tok,
-                **extra,
-            )
-            return (resp.choices[0].message.content or "").strip()
-        except Exception as e:
-            err = str(e)
-            # Compound 400 → fallback to llama70b (SPEC §11)
-            if "400" in err and model_id.startswith("groq/compound"):
-                fallback_id = MODEL_REGISTRY["large"]["model_id"]
-                try:
-                    resp = await client.chat.completions.create(
-                        model=fallback_id,
-                        messages=[{"role": "system", "content": system}] + clean_history,
-                        temperature=0.6,
-                        max_tokens=max_tok,
-                    )
-                    return (resp.choices[0].message.content or "").strip()
-                except Exception as e2:
-                    return f"⚠️ 錯誤 [{fallback_id}]: {str(e2)[:150]}"
-            return f"⚠️ 錯誤 [{model_id}]: {err[:150]}"
+    client = global_groq_client
+    try:
+        resp = await client.chat.completions.create(
+            model=model_id,
+            messages=[{"role": "system", "content": system}] + clean_history,
+            temperature=0.6,
+            max_tokens=max_tok,
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        err = str(e)
+        # Fallback for 400 errors
+        if "400" in err:
+            fallback_id = MODEL_REGISTRY["large"]["model_id"]
+            try:
+                resp = await client.chat.completions.create(
+                    model=fallback_id,
+                    messages=[{"role": "system", "content": system}] + clean_history,
+                    temperature=0.6,
+                    max_tokens=max_tok,
+                )
+                return (resp.choices[0].message.content or "").strip()
+            except Exception as e2:
+                return f"⚠️ 錯誤 [{fallback_id}]: {str(e2)[:150]}"
+        return f"⚠️ 錯誤 [{model_id}]: {err[:150]}"
+
 
 async def call_mistral_vision(image_b64: str) -> str:
     model_id = MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"]
-    system   = get_system_prompt(VISION_MODEL_KEY)
-    if True:
-        client = global_groq_client
-        try:
-            resp = await client.chat.completions.create(
-                model=model_id,
-                messages=[
-                    {"role": "system", "content": system},
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": (
-                                    "請詳細分析並描述這張圖片。"
-                                    "若有文字請完整擷取。"
-                                    "若有中文請使用繁體中文。"
-                                ),
-                            },
-                            {
-                                "type":      "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                            },
-                        ],
-                    },
-                ],
-                max_tokens=800,
-            )
-            return (resp.choices[0].message.content or "").strip()
-        except Exception as e:
-            return f"⚠️ 視覺錯誤: {str(e)[:150]}"
+    system = get_system_prompt(VISION_MODEL_KEY)
+    client = global_groq_client
+    try:
+        resp = await client.chat.completions.create(
+            model=model_id,
+            messages=[
+                {"role": "system", "content": system},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "請詳細分析並描述這張圖片。"
+                                "若有文字請完整擷取。"
+                                "若有中文請使用繁體中文。"
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                        },
+                    ],
+                },
+            ],
+            max_tokens=800,
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        return f"⚠️ 視覺錯誤: {str(e)[:150]}"
+
 
 async def call_groq_whisper(audio_bytes: bytes) -> str:
-    if True:
-        client = global_groq_client
-        try:
-            result = await client.audio.transcriptions.create(
-                file=("audio.m4a", audio_bytes),
-                model=WHISPER_MODEL,
-            )
-            return result.text
-        except Exception as e:
-            return f"⚠️ Whisper 錯誤: {str(e)[:150]}"
+    client = global_groq_client
+    try:
+        result = await client.audio.transcriptions.create(
+            file=("audio.m4a", audio_bytes),
+            model=WHISPER_MODEL,
+        )
+        return result.text
+    except Exception as e:
+        return f"⚠️ Whisper 錯誤: {str(e)[:150]}"
+
 
 async def clean_transcript(transcript: str) -> str:
-    """Fix Whisper errors via gpt120b (temperature=0.0, max_tokens=300)."""
-    if True:
-        client = global_groq_client
-        try:
-            resp = await client.chat.completions.create(
-                model=MODEL_REGISTRY["large"]["model_id"],
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        "Day la transcript tu nhan dang giong noi tu dong, co the co loi nghe nham, "
-                        "sai chinh ta, hoac tu bi thay the sai nghia.\n"
-                        "Nhiem vu: sua lai cho dung nghia nhat co the, giu nguyen ngon ngu goc.\n"
-                        "Vi du loi thuong gap:\n"
-                        "- 'cung mot' co the la '14h' hoac so gio khac\n"
-                        "- 'thuc trinh' -> 'thuyet trinh'\n"
-                        "Chi tra ve cau da sua, khong giai thich, khong them noi dung.\n\n"
-                        f"Transcript: {transcript}"
-                    ),
-                }],
-                temperature=0.0,
-                max_tokens=300,
-            )
-            cleaned = resp.choices[0].message.content.strip()
-            return cleaned if cleaned else transcript
-        except Exception:
-            return transcript
+    """Fix Whisper errors via large model."""
+    client = global_groq_client
+    try:
+        resp = await client.chat.completions.create(
+            model=MODEL_REGISTRY["large"]["model_id"],
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Day la transcript tu nhan dang giong noi tu dong, co the co loi nghe nham, "
+                    "sai chinh ta, hoac tu bi thay the sai nghia.\n"
+                    "Nhiem vu: sua lai cho dung nghia nhat co the, giu nguyen ngon ngu goc.\n"
+                    "Vi du loi thuong gap:\n"
+                    "- 'cung mot' co the la '14h' hoac so gio khac\n"
+                    "- 'thuc trinh' -> 'thuyet trinh'\n"
+                    "Chi tra ve cau da sua, khong giai thich, khong them noi dung.\n\n"
+                    f"Transcript: {transcript}"
+                ),
+            }],
+            temperature=0.0,
+            max_tokens=300,
+        )
+        cleaned = resp.choices[0].message.content.strip()
+        return cleaned if cleaned else transcript
+    except Exception:
+        return transcript
+
 
 def _split_reply(reply: str) -> list[str]:
     """Split reply into LINE-compatible chunks (max 4990 chars, max 5 messages)."""
@@ -433,18 +398,3 @@ def _split_reply(reply: str) -> list[str]:
     if reply:
         chunks.append(reply)
     return chunks[:5]
-
-
-
-MODEL_REGISTRY = {
-    "small": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay Llama 8B"},
-    "large": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay Llama 70B"},
-    "small": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay GPT 20B"},
-    "large": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay GPT 120B"},
-    "large": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay Compound"},
-    "small": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay Compound Mini"},
-    "small": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "preview", "note": "Thay Qwen"},
-    "large": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "preview", "note": "Thay Kimi"},
-    "coder": {"model_id": "codestral-latest", "type": "text", "display": "Codestral", "tier": "production", "note": "Thay Dev"},
-    "vision": {"model_id": "pixtral-12b-2409", "type": "vision", "display": "Pixtral Vision", "tier": "preview", "note": "Thay Scout"}
-}

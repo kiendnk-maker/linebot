@@ -206,7 +206,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                                 "VD: phan-tich-du-lieu, hop-team-marketing, bao-cao-tai-chinh\n"
                                 f"{transcript[:500]}"
                             )
-                            title_raw = await call_mistral_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["llama8b"]["model_id"], model_key="llama8b", user_id=user_id)
+                            title_raw = await call_mistral_text([{"role": "user", "content": prompt_title}], MODEL_REGISTRY["small"]["model_id"], model_key="small", user_id=user_id)
                             # Aggressive cleanup: only keep [a-z0-9-]
                             safe_title = re.sub(r'[^a-zA-Z0-9\-]', '', title_raw.strip().split('\n')[0].lower())
                             safe_title = re.sub(r'-+', '-', safe_title).strip('-')
