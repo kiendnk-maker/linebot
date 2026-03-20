@@ -93,7 +93,7 @@ async def handle_workspace_command(cmd: str, arg: str, user_id: str):
             calendar_data += f"- {start}: {e.get('summary', 'No title')}\n"
             
         prompt = f"Dưới đây là lịch trình thực tế lấy từ Google Calendar. Hãy kiểm tra xem có lịch chuẩn bị đám cưới nào vào 29/03 không và tóm tắt lại thật thân thiện:\n\n{calendar_data}"
-        reply = await call_groq_text([{"role": "user", "content": prompt}], "llama-3.3-70b-versatile", user_id=user_id)
+        reply = await call_groq_text([{"role": "user", "content": prompt}], "mistral-large-latest", user_id=user_id)
         return strip_markdown(reply)
 
     if cmd == "block":
@@ -407,7 +407,7 @@ async def handle_workspace_command(cmd: str, arg: str, user_id: str):
                 content_str = det_resp.json().get("snippet", "Chỉ đọc được ảnh hoặc định dạng ẩn.")
                 
         prompt = f"Dưới đây là nội dung email thực tế tôi vừa nhận. Hãy tóm tắt lại gọn gàng, liệt kê các ý chính:\n\n{content_str[:3000]}"
-        reply = await call_groq_text([{"role": "user", "content": prompt}], "llama-3.3-70b-versatile", user_id=user_id)
+        reply = await call_groq_text([{"role": "user", "content": prompt}], "mistral-large-latest", user_id=user_id)
         return strip_markdown(reply)
 
     return None

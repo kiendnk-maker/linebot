@@ -433,3 +433,17 @@ def _split_reply(reply: str) -> list[str]:
         chunks.append(reply)
     return chunks[:5]
 
+
+
+MODEL_REGISTRY = {
+    "llama8b": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay Llama 8B"},
+    "llama70b": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay Llama 70B"},
+    "gpt20b": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay GPT 20B"},
+    "gpt120b": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay GPT 120B"},
+    "compound": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "production", "note": "Thay Compound"},
+    "compound-mini": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "production", "note": "Thay Compound Mini"},
+    "qwen": {"model_id": "mistral-small-latest", "type": "text", "display": "Mistral Small 4", "tier": "preview", "note": "Thay Qwen"},
+    "kimi": {"model_id": "mistral-large-latest", "type": "text", "display": "Mistral Large 3", "tier": "preview", "note": "Thay Kimi"},
+    "dev": {"model_id": "codestral-latest", "type": "text", "display": "Codestral", "tier": "production", "note": "Thay Dev"},
+    "scout": {"model_id": "pixtral-12b-2409", "type": "vision", "display": "Pixtral Vision", "tier": "preview", "note": "Thay Scout"}
+}
