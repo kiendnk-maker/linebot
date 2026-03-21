@@ -5,17 +5,32 @@ Spec version: 2026-03-16
 
 import os
 
-# --- NUKE OLD DB ---
-import shutil
-import os
+# --- NUKE OLD DB (VOLUME SAFE) ---
+import os, shutil
 for db_dir in ['chroma_db', 'rag_db', 'vector_db']:
     if os.path.exists(db_dir):
-        try:
-            shutil.rmtree(db_dir)
-            print(f"☢️ Đã dọn dẹp DB cũ: {db_dir}")
-        except Exception as e:
-            pass
-# -------------------
+        flag_file = os.path.join(db_dir, '.v2_wiped')
+        # Nếu chưa có cờ đánh dấu -> Tiến hành dọn rác
+        if not os.path.exists(flag_file):
+            for filename in os.listdir(db_dir):
+                filepath = os.path.join(db_dir, filename)
+                try:
+                    if os.path.isfile(filepath) or os.path.islink(filepath):
+                        os.unlink(filepath)
+                    elif os.path.isdir(filepath):
+                        shutil.rmtree(filepath)
+                except Exception:
+                    pass
+            # Cắm cờ để các lần khởi động sau không bị xóa nhầm
+            try:
+                with open(flag_file, 'w') as f: f.write('wiped')
+                print(f"☢️ Đã dọn dẹp thành công nội dung Volume: {db_dir}")
+            except Exception:
+                pass
+# ---------------------------------
+
+
+
 
 import base64
 import asyncio
