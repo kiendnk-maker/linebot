@@ -37,6 +37,9 @@ def _get_meta_lock() -> asyncio.Lock:
         _chroma_locks_meta = asyncio.Lock()
     return _chroma_locks_meta
 
+_chroma_locks_meta = None
+_chroma_locks: dict[str, asyncio.Lock] = {}
+
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 async def _get_chroma_lock(user_id: str) -> asyncio.Lock:
@@ -69,9 +72,9 @@ async def embed_text(text: str) -> list[float]:
                 return resp.json()["data"][0]["embedding"]
         except Exception as e:
             print(f"Lỗi Embeddings: {e}")
-        return []
+        raise EmbedError("Embedding failed")
 async def embed_batch(texts: list[str]) -> list[list[float]]:
-    sem = asyncio.Semaphore(5)  # Giới hạn 5 luồng đồng thời gọi API Gemini
+    sem = asyncio.Semaphore(5)  # Giới hạn 5 luồng đồng thời gọi API Mistral
     
     async def embed_with_sem(text: str) -> list[float]:
         async with sem:
@@ -206,7 +209,7 @@ async def rag_search(
         ]
     except Exception as e:
         logger.warning(f"rag_search error for {user_id}: {e}")
-        return []
+        raise EmbedError("Embedding failed")
 
 async def process_file_upload(user_id: str, file_bytes: bytes, filename: str) -> str:
     """
