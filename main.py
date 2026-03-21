@@ -295,23 +295,9 @@ async def _process_event_inner(event: MessageEvent) -> None:
             user_text = event.message.text.strip()
 
             pending = _pending_choice.get(user_id)
-                pending = _pending_choice.get(user_id)
                 if user_text.isdigit() and len(user_text) <= 2 and pending:
                     if pending == "mail":
                         cmd_reply = await handle_command(user_id, f"/mail {user_text}")
-                    elif pending.startswith("audio:"):
-                        audio_id = pending.split(":", 1)[1]
-                        cmd_reply = await handle_command(user_id, f"/audio {audio_id} {user_text}")
-                    _pending_choice.pop(user_id, None)
-                else:
-                    cmd_reply = await handle_command(user_id, user_text)
-                    cmd_check = user_text.strip().lower()
-                    if cmd_check in ["/mail", "/ls mail", "mail"] and cmd_reply and "1" in cmd_reply:
-                        _pending_choice[user_id] = "mail"
-                    elif cmd_check.startswith("/audio "):
-                        pass
-                    elif cmd_reply:
-                        _pending_choice.pop(user_id, None)
                     elif pending.startswith("audio:"):
                         audio_id = pending.split(":", 1)[1]
                         cmd_reply = await handle_command(user_id, f"/audio {audio_id} {user_text}")
