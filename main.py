@@ -4,6 +4,19 @@ Spec version: 2026-03-16
 """
 
 import os
+
+# --- NUKE OLD DB ---
+import shutil
+import os
+for db_dir in ['chroma_db', 'rag_db', 'vector_db']:
+    if os.path.exists(db_dir):
+        try:
+            shutil.rmtree(db_dir)
+            print(f"☢️ Đã dọn dẹp DB cũ: {db_dir}")
+        except Exception as e:
+            pass
+# -------------------
+
 import base64
 import asyncio
 import time
