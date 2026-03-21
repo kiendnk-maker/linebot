@@ -281,3 +281,24 @@ async def cancel_reminder(user_id: str, reminder_id: int) -> bool:
         )
         await db.commit()
         return cur.rowcount > 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# PENDING IMAGE STATE — persist qua restart
+# ═══════════════════════════════════════════════════════════════
+async def get_pending_image(user_id: str) -> int | None:
+    """Trả về image_cache.id đang chờ, hoặc None."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id FROM image_cache WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+            (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def clear_pending_image(user_id: str) -> None:
+    """Xóa tất cả image_cache record của user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM image_cache WHERE user_id = ?", (user_id,))
+        await db.commit()

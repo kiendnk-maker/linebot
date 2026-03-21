@@ -20,7 +20,7 @@ from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, AudioMessageContent, ImageMessageContent
 )
 
-from database import init_db, DB_PATH, save_message
+from database import init_db, DB_PATH, save_message, get_pending_image, clear_pending_image
 from llm_core import (
     resolve_model, call_mistral_text, call_mistral_vision,
     call_groq_whisper, clean_transcript, get_history_with_summary,
@@ -64,7 +64,6 @@ async def image_cache_cleanup_loop() -> None:
                     )
                     await db.commit()
                     for uid in user_ids:
-                        _pending_image.pop(uid, None)
                         try:
                             async with AsyncApiClient(line_config) as api_client:
                                 await AsyncMessagingApi(api_client).push_message(
@@ -90,7 +89,7 @@ async def startup():
 # --- STATE MANAGEMENT ---
 _rag_disabled   = set()
 _pending_choice: dict[str, str] = {}
-_pending_image:  dict[str, int] = {}   # user_id → image_cache.id
+# _pending_image: dùng DB (image_cache) thay in-memory để survive restart
 _VISION_PROMPTS = {
     "1": "請詳細描述這張圖片的內容、色彩與構圖。",
     "2": "請完整擷取圖片中的所有文字，保持原始排版。",
@@ -186,23 +185,16 @@ async def _process_event_inner(event: MessageEvent) -> None:
             message_id = event.message.id
 
             # Nếu đang có ảnh cũ chờ → dọn dẹp trước
-            if user_id in _pending_image:
-                old_id = _pending_image.pop(user_id)
-                async with aiosqlite.connect(DB_PATH) as db:
-                    await db.execute("DELETE FROM image_cache WHERE id=?", (old_id,))
-                    await db.commit()
+            await clear_pending_image(user_id)
 
             # Lưu ảnh mới vào DB
             async with aiosqlite.connect(DB_PATH) as db:
-                cur = await db.execute(
+                await db.execute(
                     "INSERT INTO image_cache (user_id, image_b64, message_id, created_at)"
                     " VALUES (?, ?, ?, ?)",
                     (user_id, img_b64, message_id, int(time.time()))
                 )
-                img_cache_id = cur.lastrowid
                 await db.commit()
-
-            _pending_image[user_id] = img_cache_id
 
             reply = "📸 Đã nhận ảnh! Bạn muốn làm gì với ảnh này?"
             qr_items = [
@@ -217,13 +209,10 @@ async def _process_event_inner(event: MessageEvent) -> None:
             user_text = event.message.text.strip()
 
             # ── VISION INTERCEPT — Pha 2: Activate ──────────────────────
-            img_pending = _pending_image.get(user_id)
+            img_pending = await get_pending_image(user_id)
             if img_pending is not None:
                 if user_text.lower() in ("/hủy", "/cancel", "hủy"):
-                    async with aiosqlite.connect(DB_PATH) as db:
-                        await db.execute("DELETE FROM image_cache WHERE id=?", (img_pending,))
-                        await db.commit()
-                    _pending_image.pop(user_id, None)
+                    await clear_pending_image(user_id)
                     reply = "🗑 Đã hủy. Ảnh đã được xóa."
                 else:
                     vision_prompt = _VISION_PROMPTS.get(user_text) or user_text
@@ -234,17 +223,12 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         ) as cur:
                             row = await cur.fetchone()
                     if not row:
-                        _pending_image.pop(user_id, None)
+                        await clear_pending_image(user_id)
                         reply = "⚠️ Không tìm thấy ảnh trong bộ nhớ. Vui lòng gửi lại."
                     else:
                         img_b64 = row[0]
                         answer  = await call_mistral_vision(img_b64, user_prompt=vision_prompt)
-                        async with aiosqlite.connect(DB_PATH) as db:
-                            await db.execute(
-                                "DELETE FROM image_cache WHERE id=?", (img_pending,)
-                            )
-                            await db.commit()
-                        _pending_image.pop(user_id, None)
+                        await clear_pending_image(user_id)
                         await save_message(user_id, "user",      f"[Ảnh] {vision_prompt}")
                         await save_message(user_id, "assistant", answer)
                         reply = f"👁️ Vision:\n{answer}"
