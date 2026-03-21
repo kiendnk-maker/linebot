@@ -391,7 +391,7 @@ Nội dung bản ghi âm cần tóm tắt:
             rag_msg = await process_file_upload(user_id, transcript.encode('utf-8'), filename)
 
         # --- Build TXT content with metadata ---
-        from datetime import datetime
+
         from zoneinfo import ZoneInfo
         _now = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M")
         _word_count = len(transcript.split())
