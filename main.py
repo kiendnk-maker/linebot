@@ -1,8 +1,5 @@
 import os
-import json
 import logging
-import asyncio
-from typing import Dict, Any
 
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -13,22 +10,20 @@ from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
     Configuration, AsyncApiClient, AsyncMessagingApi, AsyncMessagingApiBlob,
     ReplyMessageRequest, TextMessage, ShowLoadingAnimationRequest,
-    PushMessageRequest, QuickReply, QuickReplyItem, MessageAction
+    QuickReply, QuickReplyItem, MessageAction
 )
 from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, AudioMessageContent, ImageMessageContent
 )
 
-from database import init_db, DB_PATH
 from llm_core import (
     resolve_model, call_mistral_text, call_mistral_vision,
-    call_groq_whisper, call_groq_vision
+    call_groq_whisper, clean_transcript, get_history_with_summary
 )
-from audio_core import clean_transcript
+from database import init_db, DB_PATH, save_message
 from command_handler import handle_command
 from rag_core import rag_search, has_rag_docs
-from user_history import save_message, get_history_with_summary
-from agents_workflow import parse_reminder_nlp
+from reminder_system import parse_reminder_nlp
 
 # --- LOGGING ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -131,14 +126,10 @@ async def _process_event_inner(event: MessageEvent) -> None:
         # ── IMAGE PIPELINE ──
         elif isinstance(event.message, ImageMessageContent):
             img_bytes = await line_blob_api.get_message_content(event.message.id)
-            model_key, model_id = await resolve_model(user_id, "")
-            
-            if model_key == "llama":
-                reply = await call_groq_vision(img_bytes, prompt="Describe this image in detail.")
-            else:
-                reply = await call_mistral_vision(img_bytes, prompt="Describe this image in detail.", model_id="pixtral-large-2411")
-                
-            reply = f"👁️ Vision ({'LLaMA' if model_key == 'llama' else 'Pixtral'}):\n{reply}"
+            import base64
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+            reply = await call_mistral_vision(img_b64)
+            reply = f"👁️ Vision (Pixtral):\n{reply}"
 
         # ── TEXT PIPELINE ──
         elif isinstance(event.message, TextMessageContent):
