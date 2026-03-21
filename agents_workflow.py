@@ -179,3 +179,7 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
             return f"⚠️ Lỗi Agent: {str(e)[:200]}"
 
     return "⚠️ Agent đã vượt quá số vòng lặp tối đa."
+
+
+async def run_debate(user_id: str, question: str, rounds: int = 2) -> str:
+    return "⚠️ Tính năng /debate đang được bảo trì (chưa có logic xử lý trong agents_workflow)."
