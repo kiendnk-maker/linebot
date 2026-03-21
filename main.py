@@ -16,11 +16,12 @@ from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, AudioMessageContent, ImageMessageContent
 )
 
+from database import init_db, DB_PATH, save_message
 from llm_core import (
     resolve_model, call_mistral_text, call_mistral_vision,
-    call_groq_whisper, clean_transcript, get_history_with_summary
+    call_groq_whisper, clean_transcript, get_history_with_summary,
+    strip_markdown
 )
-from database import init_db, DB_PATH, save_message
 from command_handler import handle_command
 from rag_core import rag_search, has_rag_docs
 from reminder_system import parse_reminder_nlp
@@ -114,7 +115,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         )
                         audio_id = (await cur.fetchone())[0]
                         await db.commit()
-                    
+
                     _pending_choice[user_id] = f"audio:{audio_id}"
                     reply = f"🎤 Đã bóc băng:\n{transcript}"
                     qr_items = [
@@ -134,10 +135,10 @@ async def _process_event_inner(event: MessageEvent) -> None:
         # ── TEXT PIPELINE ──
         elif isinstance(event.message, TextMessageContent):
             user_text = event.message.text.strip()
-            
+
             pending = _pending_choice.get(user_id)
             cmd_reply = None
-            
+
             # --- XỬ LÝ QUICK REPLY (1, 2, 3) DỰA THEO STATE ---
             if user_text.isdigit() and len(user_text) <= 2 and pending:
                 if pending == "mail":
@@ -145,26 +146,24 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 elif pending.startswith("audio:"):
                     audio_id = pending.split(":", 1)[1]
                     cmd_reply = await handle_command(user_id, f"/audio {audio_id} {user_text}")
-                _pending_choice.pop(user_id, None) # Xóa state sau khi dùng
-            
+                _pending_choice.pop(user_id, None)
+
             # --- XỬ LÝ LỆNH BÌNH THƯỜNG ---
             else:
                 cmd_reply = await handle_command(user_id, user_text)
-                
-                # Cập nhật State nếu user vừa list mail
+
                 cmd_check = user_text.strip().lower()
                 if cmd_check in ["/mail", "/ls mail", "mail"] and cmd_reply and "1" in cmd_reply:
                     _pending_choice[user_id] = "mail"
                     qr_items = [QuickReplyItem(action=MessageAction(label=f"{i}️⃣ Đọc mail {i}", text=str(i))) for i in range(1, 6)]
                 elif cmd_check.startswith("/audio "):
-                    pass # Bỏ qua để giữ nguyên state
+                    pass
                 elif cmd_reply:
                     _pending_choice.pop(user_id, None)
 
             if cmd_reply is not None:
                 reply = cmd_reply
             else:
-                # Gọi LLM bình thường
                 model_key, model_id = await resolve_model(user_id, user_text)
                 history = await get_history_with_summary(user_id)
 
@@ -185,11 +184,11 @@ async def _process_event_inner(event: MessageEvent) -> None:
         # ── TRẢ LỜI NGƯỜI DÙNG ──
         if reply:
             try:
-                # Giới hạn tin nhắn tối đa 5000 ký tự (chuẩn của LINE)
+                # Strip markdown trước khi gửi (LINE không render Markdown)
+                reply = strip_markdown(reply)
                 chunks = [reply[i:i+5000] for i in range(0, len(reply), 5000)]
                 messages = [TextMessage(text=c) for c in chunks]
-                
-                # Gắn Quick Reply vào tin nhắn cuối cùng (nếu có)
+
                 if qr_items and messages:
                     messages[-1] = TextMessage(text=chunks[-1], quick_reply=QuickReply(items=qr_items))
 

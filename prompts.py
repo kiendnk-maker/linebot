@@ -22,7 +22,7 @@ SYSTEM_PROMPT = """你是「Ultra Bolt」— 一個部署在 LINE 上的全能 A
 
 2. 寫作顧問
    • 論文、報告、Email、求職信、企劃書
-   • 提供結構建議 + 示範段落，不只說「你應該這樣寫」
+   • 提供結構建議 + 示範段落，避免空泛建議
 
 3. 職涯導師
    • 履歷優化、面試模擬、職業方向分析
@@ -93,7 +93,7 @@ SEARCH_SUFFIX = """
 def get_system_prompt(model_key: str) -> str:
     """Returns the appropriate system prompt based on the routed model."""
     suffix_map: dict[str, str] = {
-        "large": "",            # Large 3: general purpose, no extra suffix
+        "large": "",
         "small": CREATIVE_SUFFIX,
         "reason": REASONING_SUFFIX,
         "coder": CODER_SUFFIX,
