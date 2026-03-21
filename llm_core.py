@@ -21,11 +21,18 @@ from database import (
 logger = logging.getLogger(__name__)
 
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
 
-# Global async client — OpenAI-compatible endpoint
+# Mistral client
 mistral_client = AsyncOpenAI(
     api_key=MISTRAL_API_KEY,
     base_url="https://api.mistral.ai/v1",
+)
+
+# Groq client — dùng cho Llama 4 Scout vision
+groq_client = AsyncOpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1",
 )
 
 WHISPER_MODEL = "whisper-large-v3-turbo"
@@ -384,32 +391,60 @@ async def call_mistral_vision(
     image_b64: str,
     user_prompt: str = "請詳細分析並描述這張圖片。若有文字請完整擷取。若有中文請使用繁體中文。",
 ) -> str:
-    model_id = MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"]
+    """
+    2-phase vision pipeline:
+      Phase 1 — Llama 4 Scout (Groq): capture raw description from image
+      Phase 2 — mistral-small-latest: refine/answer based on user_prompt
+    """
     system = get_system_prompt(VISION_MODEL_KEY)
+
+    # ── Phase 1: Llama 4 Scout — raw image capture ──────────────────
     try:
-        resp = await mistral_client.chat.completions.create(
-            model=model_id,
+        raw_resp = await groq_client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Describe everything in this image in detail. Extract all text verbatim.",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                        },
+                    ],
+                }
+            ],
+            max_tokens=1024,
+        )
+        raw_caption = (raw_resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.error(f"Llama 4 Scout vision error: {e}")
+        return f"⚠️ 視覺錯誤 (Phase 1): {str(e)[:150]}"
+
+    # ── Phase 2: mistral-small-latest — process with user intent ────
+    try:
+        final_resp = await mistral_client.chat.completions.create(
+            model="mistral-small-latest",
             messages=[
                 {"role": "system", "content": system},
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_b64}"
-                            },
-                        },
-                    ],
+                    "content": (
+                        f"[Mô tả ảnh từ AI vision]\n{raw_caption}\n\n"
+                        f"[Yêu cầu của người dùng]\n{user_prompt}"
+                    ),
                 },
             ],
             max_tokens=1200,
         )
-        return (resp.choices[0].message.content or "").strip()
+        return (final_resp.choices[0].message.content or "").strip()
     except Exception as e:
-        logger.error(f"Vision API error: {e}")
-        return f"⚠️ 視覺錯誤: {str(e)[:150]}"
+        logger.error(f"Mistral Small vision refinement error: {e}")
+        # Fallback: trả raw caption nếu phase 2 lỗi
+        return raw_caption
 
 
 # ═══════════════════════════════════════════════════════════════════
