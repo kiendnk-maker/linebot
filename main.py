@@ -85,6 +85,22 @@ webhook_parser = WebhookParser(LINE_CHANNEL_SECRET)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Auto-nuke old ChromaDB collections with wrong dimensions
+    try:
+        import chromadb
+        chroma_path = os.environ.get("CHROMA_PATH", "chroma")
+        _cc = chromadb.PersistentClient(path=chroma_path)
+        for col_name in [c.name for c in _cc.list_collections()]:
+            try:
+                col = _cc.get_collection(col_name)
+                peek = col.peek(1)
+                if peek and peek.get("embeddings") and len(peek["embeddings"][0]) == 3072:
+                    _cc.delete_collection(col_name)
+                    logger.info(f"Deleted old 3072-dim collection: {col_name}")
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"ChromaDB cleanup: {e}")
     async with aiosqlite.connect(DB_PATH) as db:
         try:
             await db.execute("ALTER TABLE user_settings ADD COLUMN language TEXT DEFAULT 'vi'")

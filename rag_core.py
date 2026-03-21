@@ -72,7 +72,7 @@ async def embed_text(text: str) -> list[float]:
                 return resp.json()["data"][0]["embedding"]
         except Exception as e:
             print(f"Lỗi Embeddings: {e}")
-        raise EmbedError("Embedding failed")
+        return []
 async def embed_batch(texts: list[str]) -> list[list[float]]:
     sem = asyncio.Semaphore(5)  # Giới hạn 5 luồng đồng thời gọi API Mistral
     
@@ -195,8 +195,20 @@ async def rag_search(
     """
     try:
         vec = await embed_text(query)
+        if not vec:
+            return []
         col = get_user_collection(user_id)
-        results = col.query(query_embeddings=[vec], n_results=top_k)
+        try:
+            results = col.query(query_embeddings=[vec], n_results=top_k)
+        except Exception as dim_err:
+            if "dimension" in str(dim_err).lower():
+                logger.warning(f"Dimension mismatch for {user_id}, deleting old collection")
+                try:
+                    chroma_client.delete_collection(f"rag_{user_id}")
+                except Exception:
+                    pass
+                return []
+            raise
         docs      = results.get("documents", [[]])[0]
         metadatas = results.get("metadatas", [[]])[0]
         return [
@@ -209,7 +221,7 @@ async def rag_search(
         ]
     except Exception as e:
         logger.warning(f"rag_search error for {user_id}: {e}")
-        raise EmbedError("Embedding failed")
+        return []
 
 async def process_file_upload(user_id: str, file_bytes: bytes, filename: str) -> str:
     """
