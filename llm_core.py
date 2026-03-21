@@ -65,10 +65,8 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
     # ── Reasoning (NEW) ────────────────────────────────────────
     "reason": {
-        "model_id": "magistral-medium-latest",
-        "type": "reasoning",
-        "tier": "production",
-        "display": "Magistral Medium",
+        "model_id": "qwen-qwq-32b",
+        "display": "Qwen3 32B (Reasoning)",
         "ctx": 40_960,
         "note": "Deep reasoning, toán & logic, chain-of-thought",
         "supports_reasoning_effort": True,
