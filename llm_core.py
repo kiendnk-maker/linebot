@@ -65,8 +65,10 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
     # ── Reasoning (NEW) ────────────────────────────────────────
     "reason": {
-        "model_id": "qwen-qwq-32b",
-        "display": "Qwen3 32B (Reasoning)",
+        "model_id": "magistral-medium-latest",
+        "type": "reasoning",
+        "tier": "production",
+        "display": "Magistral Medium",
         "ctx": 40_960,
         "note": "Deep reasoning, toán & logic, chain-of-thought",
         "supports_reasoning_effort": True,
@@ -378,7 +380,10 @@ async def call_mistral_text(
 # ═══════════════════════════════════════════════════════════════════
 # VISION API — Pixtral Large
 # ═══════════════════════════════════════════════════════════════════
-async def call_mistral_vision(image_b64: str) -> str:
+async def call_mistral_vision(
+    image_b64: str,
+    user_prompt: str = "請詳細分析並描述這張圖片。若有文字請完整擷取。若有中文請使用繁體中文。",
+) -> str:
     model_id = MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"]
     system = get_system_prompt(VISION_MODEL_KEY)
     try:
@@ -389,14 +394,7 @@ async def call_mistral_vision(image_b64: str) -> str:
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                "請詳細分析並描述這張圖片。"
-                                "若有文字請完整擷取。"
-                                "若有中文請使用繁體中文。"
-                            ),
-                        },
+                        {"type": "text", "text": user_prompt},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -410,6 +408,7 @@ async def call_mistral_vision(image_b64: str) -> str:
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
+        logger.error(f"Vision API error: {e}")
         return f"⚠️ 視覺錯誤: {str(e)[:150]}"
 
 

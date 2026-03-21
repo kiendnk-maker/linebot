@@ -80,6 +80,16 @@ async def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS mail_block "
             "(user_id TEXT, keyword TEXT, PRIMARY KEY (user_id, keyword))"
         )
+        # Image cache (Vision V1)
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS image_cache (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    TEXT    NOT NULL,
+                image_b64  TEXT    NOT NULL,
+                message_id TEXT    NOT NULL,
+                created_at INTEGER NOT NULL
+            )"""
+        )
         await db.commit()
 
     # Tracker tables (once at startup, not on every save)

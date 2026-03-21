@@ -1,5 +1,9 @@
 import os
+import time
+import base64
 import logging
+import asyncio
+import aiosqlite
 
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -9,7 +13,7 @@ from linebot.v3 import WebhookParser
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
     Configuration, AsyncApiClient, AsyncMessagingApi, AsyncMessagingApiBlob,
-    ReplyMessageRequest, TextMessage, ShowLoadingAnimationRequest,
+    ReplyMessageRequest, PushMessageRequest, TextMessage, ShowLoadingAnimationRequest,
     QuickReply, QuickReplyItem, MessageAction
 )
 from linebot.v3.webhooks import (
@@ -39,14 +43,62 @@ app = FastAPI()
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
+# ── CLEANUP LOOP — xóa image_cache hết hạn mỗi 5 phút ──────────────────────
+async def image_cache_cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(300)
+        cutoff = int(time.time()) - 600  # 10 phút
+        try:
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute(
+                    "SELECT id, user_id FROM image_cache WHERE created_at < ?", (cutoff,)
+                ) as cur:
+                    expired = await cur.fetchall()
+                if expired:
+                    ids      = [r[0] for r in expired]
+                    user_ids = [r[1] for r in expired]
+                    placeholders = ",".join("?" * len(ids))
+                    await db.execute(
+                        f"DELETE FROM image_cache WHERE id IN ({placeholders})", ids
+                    )
+                    await db.commit()
+                    for uid in user_ids:
+                        _pending_image.pop(uid, None)
+                        try:
+                            async with AsyncApiClient(line_config) as api_client:
+                                await AsyncMessagingApi(api_client).push_message(
+                                    PushMessageRequest(
+                                        to=uid,
+                                        messages=[TextMessage(
+                                            text="⏰ Ảnh đã hết hạn (10 phút). Vui lòng gửi lại."
+                                        )]
+                                    )
+                                )
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.error(f"image_cache_cleanup_loop error: {e}")
+
+
 @app.on_event("startup")
 async def startup():
     await init_db()
+    asyncio.create_task(image_cache_cleanup_loop())
+
 
 # --- STATE MANAGEMENT ---
-_rag_disabled = set()
+_rag_disabled   = set()
 _pending_choice: dict[str, str] = {}
+_pending_image:  dict[str, int] = {}   # user_id → image_cache.id
+_VISION_PROMPTS = {
+    "1": "請詳細描述這張圖片的內容、色彩與構圖。",
+    "2": "請完整擷取圖片中的所有文字，保持原始排版。",
+    "3": "請將圖片中的所有文字翻譯成繁體中文。",
+    "4": "請深入分析這張圖表或圖片的數據、趨勢與含義。",
+}
 _REPLY_TRIGGERS = ["bot", "ai", "bolt", "trợ lý", "em ơi", "bạn ơi"]
+
 
 async def _process_event_inner(event: MessageEvent) -> None:
     user_id = event.source.user_id
@@ -62,10 +114,10 @@ async def _process_event_inner(event: MessageEvent) -> None:
         except Exception:
             pass
 
-        reply = ""
+        reply    = ""
         qr_items = None
 
-        # ── AUDIO PIPELINE ──
+        # ── AUDIO PIPELINE ─────────────────────────────────────────────────
         if isinstance(event.message, AudioMessageContent):
             audio_bytes = await line_blob_api.get_message_content(event.message.id)
             transcript  = await call_groq_whisper(audio_bytes)
@@ -76,7 +128,10 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 transcript = await clean_transcript(transcript)
                 logger.info(f"AUDIO cleaned | user={user_id} | text={transcript[:50]!r}")
 
-                wants_reply = any(transcript.strip().lower().startswith(t.lower()) for t in _REPLY_TRIGGERS)
+                wants_reply = any(
+                    transcript.strip().lower().startswith(t.lower())
+                    for t in _REPLY_TRIGGERS
+                )
 
                 if wants_reply:
                     clean_text = transcript.strip()
@@ -107,10 +162,10 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         await save_message(user_id, "assistant", answer)
                         reply = f"🎤 {clean_text}\n\n🤖 {answer}"
                 else:
-                    import aiosqlite
                     async with aiosqlite.connect(DB_PATH) as db:
                         cur = await db.execute(
-                            "INSERT INTO audio_cache (user_id, transcript, filename) VALUES (?, ?, ?) RETURNING id",
+                            "INSERT INTO audio_cache (user_id, transcript, filename)"
+                            " VALUES (?, ?, ?) RETURNING id",
                             (user_id, transcript, f"audio_{event.message.id}.txt")
                         )
                         audio_id = (await cur.fetchone())[0]
@@ -121,76 +176,143 @@ async def _process_event_inner(event: MessageEvent) -> None:
                     qr_items = [
                         QuickReplyItem(action=MessageAction(label="1️⃣ Tóm tắt", text="1")),
                         QuickReplyItem(action=MessageAction(label="2️⃣ Lưu RAG", text="2")),
-                        QuickReplyItem(action=MessageAction(label="3️⃣ Cả hai", text="3"))
+                        QuickReplyItem(action=MessageAction(label="3️⃣ Cả hai",  text="3")),
                     ]
 
-        # ── IMAGE PIPELINE ──
+        # ── IMAGE PIPELINE — Pha 1: Hold & Wait ────────────────────────────
         elif isinstance(event.message, ImageMessageContent):
-            img_bytes = await line_blob_api.get_message_content(event.message.id)
-            import base64
-            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
-            reply = await call_mistral_vision(img_b64)
-            reply = f"👁️ Vision (Pixtral):\n{reply}"
+            img_bytes  = await line_blob_api.get_message_content(event.message.id)
+            img_b64    = base64.b64encode(img_bytes).decode("utf-8")
+            message_id = event.message.id
 
-        # ── TEXT PIPELINE ──
+            # Nếu đang có ảnh cũ chờ → dọn dẹp trước
+            if user_id in _pending_image:
+                old_id = _pending_image.pop(user_id)
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await db.execute("DELETE FROM image_cache WHERE id=?", (old_id,))
+                    await db.commit()
+
+            # Lưu ảnh mới vào DB
+            async with aiosqlite.connect(DB_PATH) as db:
+                cur = await db.execute(
+                    "INSERT INTO image_cache (user_id, image_b64, message_id, created_at)"
+                    " VALUES (?, ?, ?, ?)",
+                    (user_id, img_b64, message_id, int(time.time()))
+                )
+                img_cache_id = cur.lastrowid
+                await db.commit()
+
+            _pending_image[user_id] = img_cache_id
+
+            reply = "📸 Đã nhận ảnh! Bạn muốn làm gì với ảnh này?"
+            qr_items = [
+                QuickReplyItem(action=MessageAction(label="1️⃣ Mô tả",    text="1")),
+                QuickReplyItem(action=MessageAction(label="2️⃣ OCR",       text="2")),
+                QuickReplyItem(action=MessageAction(label="3️⃣ Dịch",      text="3")),
+                QuickReplyItem(action=MessageAction(label="4️⃣ Phân tích", text="4")),
+            ]
+
+        # ── TEXT PIPELINE ───────────────────────────────────────────────────
         elif isinstance(event.message, TextMessageContent):
             user_text = event.message.text.strip()
 
-            pending = _pending_choice.get(user_id)
-            cmd_reply = None
+            # ── VISION INTERCEPT — Pha 2: Activate ──────────────────────
+            img_pending = _pending_image.get(user_id)
+            if img_pending is not None:
+                if user_text.lower() in ("/hủy", "/cancel", "hủy"):
+                    async with aiosqlite.connect(DB_PATH) as db:
+                        await db.execute("DELETE FROM image_cache WHERE id=?", (img_pending,))
+                        await db.commit()
+                    _pending_image.pop(user_id, None)
+                    reply = "🗑 Đã hủy. Ảnh đã được xóa."
+                else:
+                    vision_prompt = _VISION_PROMPTS.get(user_text) or user_text
+                    async with aiosqlite.connect(DB_PATH) as db:
+                        async with db.execute(
+                            "SELECT image_b64 FROM image_cache WHERE id=? AND user_id=?",
+                            (img_pending, user_id)
+                        ) as cur:
+                            row = await cur.fetchone()
+                    if not row:
+                        _pending_image.pop(user_id, None)
+                        reply = "⚠️ Không tìm thấy ảnh trong bộ nhớ. Vui lòng gửi lại."
+                    else:
+                        img_b64 = row[0]
+                        answer  = await call_mistral_vision(img_b64, user_prompt=vision_prompt)
+                        async with aiosqlite.connect(DB_PATH) as db:
+                            await db.execute(
+                                "DELETE FROM image_cache WHERE id=?", (img_pending,)
+                            )
+                            await db.commit()
+                        _pending_image.pop(user_id, None)
+                        await save_message(user_id, "user",      f"[Ảnh] {vision_prompt}")
+                        await save_message(user_id, "assistant", answer)
+                        reply = f"👁️ Vision:\n{answer}"
 
-            # --- XỬ LÝ QUICK REPLY (1, 2, 3) DỰA THEO STATE ---
-            if user_text.isdigit() and len(user_text) <= 2 and pending:
-                if pending == "mail":
-                    cmd_reply = await handle_command(user_id, f"/mail {user_text}")
-                elif pending.startswith("audio:"):
-                    audio_id = pending.split(":", 1)[1]
-                    cmd_reply = await handle_command(user_id, f"/audio {audio_id} {user_text}")
-                _pending_choice.pop(user_id, None)
-
-            # --- XỬ LÝ LỆNH BÌNH THƯỜNG ---
+            # ── TEXT PIPELINE BÌNH THƯỜNG (không vướng Vision) ──────────
             else:
-                cmd_reply = await handle_command(user_id, user_text)
+                pending   = _pending_choice.get(user_id)
+                cmd_reply = None
 
-                cmd_check = user_text.strip().lower()
-                if cmd_check in ["/mail", "/ls mail", "mail"] and cmd_reply and "1" in cmd_reply:
-                    _pending_choice[user_id] = "mail"
-                    qr_items = [QuickReplyItem(action=MessageAction(label=f"{i}️⃣ Đọc mail {i}", text=str(i))) for i in range(1, 6)]
-                elif cmd_check.startswith("/audio "):
-                    pass
-                elif cmd_reply:
+                # Xử lý Quick Reply số (audio / mail) theo state
+                if user_text.isdigit() and len(user_text) <= 2 and pending:
+                    if pending == "mail":
+                        cmd_reply = await handle_command(user_id, f"/mail {user_text}")
+                    elif pending.startswith("audio:"):
+                        audio_id  = pending.split(":", 1)[1]
+                        cmd_reply = await handle_command(
+                            user_id, f"/audio {audio_id} {user_text}"
+                        )
                     _pending_choice.pop(user_id, None)
 
-            if cmd_reply is not None:
-                reply = cmd_reply
-            else:
-                model_key, model_id = await resolve_model(user_id, user_text)
-                history = await get_history_with_summary(user_id)
+                # Xử lý lệnh bình thường
+                else:
+                    cmd_reply = await handle_command(user_id, user_text)
 
-                rag_chunks = []
-                if user_id not in _rag_disabled and await has_rag_docs(user_id):
-                    rag_chunks = await rag_search(user_id, user_text)
+                    cmd_check = user_text.strip().lower()
+                    if cmd_check in ["/mail", "/ls mail", "mail"] and cmd_reply and "1" in cmd_reply:
+                        _pending_choice[user_id] = "mail"
+                        qr_items = [
+                            QuickReplyItem(action=MessageAction(
+                                label=f"{i}️⃣ Đọc mail {i}", text=str(i)
+                            )) for i in range(1, 6)
+                        ]
+                    elif cmd_check.startswith("/audio "):
+                        pass
+                    elif cmd_reply:
+                        _pending_choice.pop(user_id, None)
 
-                history.append({"role": "user", "content": user_text})
-                if rag_chunks:
-                    ctx_str = "\n".join(rag_chunks)
-                    history[-1]["content"] = f"Context:\n{ctx_str}\n\nQuestion: {user_text}"
+                if cmd_reply is not None:
+                    reply = cmd_reply
+                else:
+                    model_key, model_id = await resolve_model(user_id, user_text)
+                    history = await get_history_with_summary(user_id)
 
-                answer = await call_mistral_text(history, model_id, model_key=model_key)
-                await save_message(user_id, "user", user_text)
-                await save_message(user_id, "assistant", answer)
-                reply = answer
+                    rag_chunks = []
+                    if user_id not in _rag_disabled and await has_rag_docs(user_id):
+                        rag_chunks = await rag_search(user_id, user_text)
 
-        # ── TRẢ LỜI NGƯỜI DÙNG ──
+                    history.append({"role": "user", "content": user_text})
+                    if rag_chunks:
+                        ctx_str = "\n".join(rag_chunks)
+                        history[-1]["content"] = f"Context:\n{ctx_str}\n\nQuestion: {user_text}"
+
+                    answer = await call_mistral_text(history, model_id, model_key=model_key)
+                    await save_message(user_id, "user",      user_text)
+                    await save_message(user_id, "assistant", answer)
+                    reply = answer
+
+        # ── TRẢ LỜI NGƯỜI DÙNG ─────────────────────────────────────────────
         if reply:
             try:
-                # Strip markdown trước khi gửi (LINE không render Markdown)
-                reply = strip_markdown(reply)
+                reply  = strip_markdown(reply)
                 chunks = [reply[i:i+5000] for i in range(0, len(reply), 5000)]
                 messages = [TextMessage(text=c) for c in chunks]
 
                 if qr_items and messages:
-                    messages[-1] = TextMessage(text=chunks[-1], quick_reply=QuickReply(items=qr_items))
+                    messages[-1] = TextMessage(
+                        text=chunks[-1], quick_reply=QuickReply(items=qr_items)
+                    )
 
                 await line_api.reply_message(
                     ReplyMessageRequest(
@@ -200,6 +322,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 )
             except Exception as e:
                 logger.error(f"Reply error: {e}")
+
 
 @app.post("/webhook")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
