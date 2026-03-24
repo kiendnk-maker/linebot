@@ -322,3 +322,4 @@ async def call_mistral_text(
     # Language forcer
     if user_id and clean_history and clean_history[-1]["role"] == "user":
         # Language is controlled by system prompt — forcer removed.
+        pass
