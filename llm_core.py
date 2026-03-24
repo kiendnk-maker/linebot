@@ -12,7 +12,14 @@ import aiosqlite
 import logging
 import base64
 from openai import AsyncOpenAI
-from prompts import get_system_prompt
+from prompts import (
+    get_system_prompt,
+    MODEL_REGISTRY,
+    DEFAULT_MODEL_KEY,
+    VISION_MODEL_KEY,
+    CLASSIFIER_MODEL_KEY,
+    ROUTE_MAP,
+)
 from database import (
     DB_PATH, get_user_profile, get_user_model, get_user_max_tokens,
     count_history, get_history_raw, get_summary, save_summary,
