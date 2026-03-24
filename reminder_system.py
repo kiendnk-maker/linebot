@@ -79,7 +79,7 @@ async def parse_reminder_nlp(user_id: str, user_text: str) -> str | None:
         client = AsyncOpenAI(api_key=os.environ.get("MISTRAL_API_KEY", ""), base_url="https://api.mistral.ai/v1")
         try:
             resp = await client.chat.completions.create(
-                model=MODEL_REGISTRY["llama8b"]["model_id"],
+                model=MODEL_REGISTRY["small"]["model_id"],
                 messages=[{
                     "role": "user",
                     "content": _PARSE_REMINDER_PROMPT.format(
@@ -139,41 +139,44 @@ async def reminder_loop() -> None:
     """Background task — check reminders every 30 seconds."""
     while True:
         await asyncio.sleep(30)
-        now = int(datetime.now(TZ).timestamp())
+        try:
+            now = int(datetime.now(TZ).timestamp())
 
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute(
-                "SELECT id, user_id, message, repeat, fire_at FROM reminders "
-                "WHERE fire_at <= ? AND done = 0",
-                (now,),
-            ) as cur:
-                rows = await cur.fetchall()
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute(
+                    "SELECT id, user_id, message, repeat, fire_at FROM reminders "
+                    "WHERE fire_at <= ? AND done = 0",
+                    (now,),
+                ) as cur:
+                    rows = await cur.fetchall()
 
-            for rid, uid, message, repeat, fire_at_db in rows:
-                try:
-                    label = {
-                        "daily":   " (hàng ngày)",
-                        "weekly":  " (hàng tuần)",
-                        "monthly": " (hàng tháng)",
-                    }.get(repeat or "", "")
-                    async with AsyncApiClient(main.line_config) as api_client:
-                        line_api = AsyncMessagingApi(api_client)
-                        await line_api.push_message(
-                            PushMessageRequest(
-                                to=uid,
-                                messages=[TextMessage(text=f"⏰ Nhắc nhở{label}: {message}")],
+                for rid, uid, message, repeat, fire_at_db in rows:
+                    try:
+                        label = {
+                            "daily":   " (hàng ngày)",
+                            "weekly":  " (hàng tuần)",
+                            "monthly": " (hàng tháng)",
+                        }.get(repeat or "", "")
+                        async with AsyncApiClient(main.line_config) as api_client:
+                            line_api = AsyncMessagingApi(api_client)
+                            await line_api.push_message(
+                                PushMessageRequest(
+                                    to=uid,
+                                    messages=[TextMessage(text=f"⏰ Nhắc nhở{label}: {message}")],
+                                )
                             )
+                    except Exception:
+                        pass
+
+                    if repeat:
+                        next_ts = _next_fire(fire_at_db, repeat)
+                        await db.execute(
+                            "UPDATE reminders SET fire_at = ? WHERE id = ?", (next_ts, rid)
                         )
-                except Exception:
-                    pass
+                    else:
+                        await db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rid,))
 
-                if repeat:
-                    next_ts = _next_fire(fire_at_db, repeat)
-                    await db.execute(
-                        "UPDATE reminders SET fire_at = ? WHERE id = ?", (next_ts, rid)
-                    )
-                else:
-                    await db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rid,))
-
-            await db.commit()
+                await db.commit()
+        except Exception as e:
+            logger.error(f"reminder_loop error: {e}", exc_info=True)
 

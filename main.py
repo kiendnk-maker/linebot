@@ -27,7 +27,7 @@ from llm_core import (
     strip_markdown
 )
 from command_handler import handle_command
-from rag_core import rag_search, has_rag_docs
+from rag_core import rag_search, has_rag_docs, warmup_chromadb
 from reminder_system import parse_reminder_nlp
 
 # --- LOGGING ---
@@ -84,6 +84,17 @@ async def image_cache_cleanup_loop() -> None:
 async def startup():
     await init_db()
     asyncio.create_task(image_cache_cleanup_loop())
+
+
+@app.get("/warmup")
+async def warmup():
+    """Pre-warm ChromaDB so the first user request doesn't hit cold-start latency."""
+    try:
+        await warmup_chromadb()
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"warmup failed: {e}")
+        return JSONResponse(status_code=503, content={"status": "error", "detail": str(e)})
 
 
 # --- STATE MANAGEMENT ---

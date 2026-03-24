@@ -323,3 +323,51 @@ async def call_mistral_text(
     if user_id and clean_history and clean_history[-1]["role"] == "user":
         # Language is controlled by system prompt — forcer removed.
         pass
+
+
+# ═══════════════════════════════════════════════════════════════════
+# VISION — Pixtral / Llama4 Scout image understanding
+# ═══════════════════════════════════════════════════════════════════
+async def call_mistral_vision(img_b64: str, user_prompt: str = "Mô tả ảnh này.") -> str:
+    """Send a base64 image to the vision model and return text response."""
+    vision_model = MODEL_REGISTRY.get(VISION_MODEL_KEY, {}).get("model_id", "pixtral-12b-2409")
+    # Llama4 is served via Groq; others via Mistral
+    client = groq_client if VISION_MODEL_KEY == "llama4" else mistral_client
+    response = await client.chat.completions.create(
+        model=vision_model,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                {"type": "text", "text": user_prompt},
+            ],
+        }],
+        max_tokens=1024,
+    )
+    return response.choices[0].message.content or ""
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUDIO — Groq Whisper transcription
+# ═══════════════════════════════════════════════════════════════════
+async def call_groq_whisper(audio_bytes: bytes) -> str:
+    """Transcribe audio bytes via Groq Whisper and return raw transcript."""
+    import io
+    from groq import AsyncGroq
+    groq = AsyncGroq(api_key=GROQ_API_KEY)
+    transcription = await groq.audio.transcriptions.create(
+        model=WHISPER_MODEL,
+        file=("audio.ogg", io.BytesIO(audio_bytes)),
+        response_format="text",
+    )
+    return str(transcription)
+
+
+def clean_transcript(text: str) -> str:
+    """Light post-processing: strip filler words and trim whitespace."""
+    import re as _re
+    # Remove common Whisper hallucinations
+    fillers = [r"\buh+\b", r"\bum+\b", r"\bhmm+\b", r"\.{3,}"]
+    for pat in fillers:
+        text = _re.sub(pat, "", text, flags=_re.IGNORECASE)
+    return text.strip()

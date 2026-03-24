@@ -7,6 +7,7 @@ import urllib.request
 import urllib.parse
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from simpleeval import simple_eval, InvalidExpression
 
 TZ = ZoneInfo("Asia/Taipei")
 
@@ -17,13 +18,12 @@ def get_current_time() -> str:
 
 
 def calculate_math(expression: str) -> str:
-    """Safe math evaluation — basic arithmetic only."""
+    """Safe math evaluation using simpleeval — no eval() or exec()."""
     try:
-        allowed_chars = "0123456789+-*/().% "
-        if any(char not in allowed_chars for char in expression):
-            return "Lỗi: Biểu thức chứa ký tự không hợp lệ."
-        result = eval(expression)  # Safe: only digits and operators allowed
+        result = simple_eval(expression)
         return str(result)
+    except InvalidExpression as e:
+        return f"Lỗi: Biểu thức không hợp lệ — {str(e)}"
     except Exception as e:
         return f"Lỗi tính toán: {str(e)}"
 
