@@ -71,6 +71,11 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
             await db.commit()
         return "🗑 對話記錄已清除。"
 
+    # Short commands
+    if cmd == "a":
+        await set_user_model(user_id, DEFAULT_MODEL_KEY)
+        return "🤖 Đã chuyển sang tự động chọn model"
+    
     if cmd == "auto":
         await set_user_model(user_id, DEFAULT_MODEL_KEY)
         return "🤖 已切換至自動選擇模型模式。"
@@ -96,6 +101,31 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
         await set_user_model(user_id, target)
         return f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
 
+    # Short model commands: /m <number>
+    if cmd == "m":
+        if not arg:
+            return "🔢 Gõ /m <số> (1-8) để chọn model nhanh"
+        try:
+            choice = int(arg)
+            model_map = {
+                1: "mistral_small",
+                2: "mistral_medium", 
+                3: "mistral_large",
+                4: "codestral",
+                5: "pixtral",
+                6: "small",
+                7: "large",
+                8: "qwen3",
+            }
+            if choice in model_map:
+                model_key = model_map[choice]
+                await set_user_model(user_id, model_key)
+                return f"✅ Đã chuyển sang {MODEL_REGISTRY[model_key]['display']}"
+            else:
+                return "❌ Chọn số 1-8 thôi nhé!"
+        except ValueError:
+            return "❌ Gõ /m <số> (1-8)"
+    
     # Mistral AI model shortcuts
     if cmd == "mistral_small":
         await set_user_model(user_id, "mistral_small")
@@ -269,40 +299,30 @@ async def _handle_remind(user_id: str, arg: str) -> str:
 
 def _models_list_text() -> str:
     return (
-        "📋 Con mèo ngốc 🐱 — DANH SÁCH LỆNH\n"
+        "📋 Con mèo ngốc 🐱 — LỆNH NHANH\n"
         "\n"
-        "━━ Models (Mistral AI) ━━\n"
-        "🐿 /mistral_small — Mistral Small (nhanh)\n"
-        "🦊 /mistral_medium — Mistral Medium (cân bằng)\n"
-        "🦁 /mistral_large — Mistral Large (mạnh)\n"
-        "💻 /codestral — Codestral (chuyên code)\n"
-        "👁 /pixtral — Pixtral (vision)\n"
+        "🔥 MODELS (gõ /m <số>)\n"
+        "1🐿 Mistral Small | 2🦊 Medium | 3🦁 Large\n"
+        "4💻 Codestral | 5👁 Pixtral\n"
+        "6⚡ Llama 8B | 7🦙 Llama 70B | 8🧠 Qwen3\n"
         "\n"
-        "━━ Models (Groq FREE) ━━\n"
-        "⚡ /small — Llama 3.1 8B (siêu nhanh)\n"
-        "🦙 /large — Llama 3.3 70B (đa năng)\n"
-        "🧠 /reason — Qwen3 32B (reasoning)\n"
-        "🚀 /llama — LLaMA 4 Scout (vision)\n"
+        "🤖 AI MODES\n"
+        "/a — Auto model | /p <câu hỏi> — Pro mode\n"
+        "/d <câu hỏi> — Debate | /ag <task> — Agent\n"
+        "/co <req> — Coder mode\n"
         "\n"
-        "━━ AI Modes ━━\n"
-        "🤖 /auto — Tự chọn model\n"
-        "🧠 /pro <câu hỏi> — Deep Thinking\n"
-        "⚔️ /debate <câu hỏi> — 2 AI tranh luận\n"
-        "🤖 /agent <task> — Agent + tools\n"
-        "💻 /coder <req> — Plan→Code→Review\n"
+        "📧 GOOGLE\n"
+        "/login | /ls | /mail <số>\n"
+        "/cal | /block | /unblock\n"
         "\n"
-        "━━ Google ━━\n"
-        "🔐 /login | 📬 /ls mail | 📧 /mail\n"
-        "📅 /cal | /block | /unblock\n"
+        "📚 RAG\n"
+        "Gửi file PDF/TXT → auto KB\n"
+        "/rag list|clear|off|on\n"
         "\n"
-        "━━ RAG ━━\n"
-        "📄 Gửi PDF/TXT/DOCX → auto KB\n"
-        "📂 /rag list|clear|off|on\n"
+        "👤 CÁ NHÂN\n"
+        "/pro | /remind | /mn\n"
         "\n"
-        "━━ Cá nhân ━━\n"
-        "👤 /profile | ⏰ /remind | 💰 /mn\n"
-        "\n"
-        "━━ Cài đặt ━━\n"
-        "🇻🇳 /vi | 🇹🇼 /tw | /long | /short\n"
-        "🗑 /clear | 📊 /usage | /model | /auto"
+        "⚙ CÀI ĐẶT\n"
+        "/vi | /tw | /long | /short\n"
+        "/clear | /usage | /models"
     )
