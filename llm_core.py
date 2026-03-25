@@ -17,16 +17,8 @@ from database import (
 
 logger = logging.getLogger(__name__)
 
-MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
-GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-# Mistral client
-mistral_client = AsyncOpenAI(
-    api_key=MISTRAL_API_KEY,
-    base_url="https://api.mistral.ai/v1",
-)
-
-# Groq client
 groq_client = AsyncOpenAI(
     api_key=GROQ_API_KEY,
     base_url="https://api.groq.com/openai/v1",
@@ -142,7 +134,7 @@ async def maybe_summarize(user_id: str) -> None:
         f"Tóm tắt trước đó: {prev}\n\nHội thoại:\n{text}"
     )
     try:
-        resp = await mistral_client.chat.completions.create(
+        resp = await groq_client.chat.completions.create(
             model=MODEL_REGISTRY["small"]["model_id"],
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
@@ -259,9 +251,7 @@ async def call_mistral_text(
         _is_detail = any(kw in _last_msg.lower() for kw in ("chi tiết", "detail", "liệt kê", "list all", "全部", "詳細"))
         max_tok = user_max if user_max != 800 else (1500 if _is_detail else 800)
 
-        # Route to correct API based on provider field
-        provider = MODEL_REGISTRY.get(model_key, {}).get("provider", "mistral")
-        _client = groq_client if provider == "groq" else mistral_client
+        _client = groq_client
         resp = await _client.chat.completions.create(
             model=model_id,
             messages=[{"role": "system", "content": system}] + clean_history,
@@ -342,7 +332,7 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
 
 async def clean_transcript(transcript: str) -> str:
     try:
-        resp = await mistral_client.chat.completions.create(
+        resp = await groq_client.chat.completions.create(
             model=MODEL_REGISTRY["large"]["model_id"],
             messages=[{"role": "user", "content": (
                 "Fix speech-to-text errors. Return only the corrected text, no explanation.\n"
