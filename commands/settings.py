@@ -108,48 +108,24 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
     # Short model commands: /m <number>
     if cmd == "m":
         if not arg:
-            return "🔢 Gõ /m <số> (1-8) để chọn model nhanh"
+            return "🔢 Gõ /m <số> (1-5) để chọn model nhanh"
         try:
             choice = int(arg)
             model_map = {
-                1: "mistral_small",
-                2: "mistral_medium", 
-                3: "mistral_large",
-                4: "codestral",
-                5: "pixtral",
-                6: "small",
-                7: "large",
-                8: "qwen3",
+                1: "small",
+                2: "large", 
+                3: "qwen3",
+                4: "groq_fast",
+                5: "groq_large",
             }
             if choice in model_map:
                 model_key = model_map[choice]
                 await set_user_model(user_id, model_key)
                 return f"✅ Đã chuyển sang {MODEL_REGISTRY[model_key]['display']}"
             else:
-                return "❌ Chọn số 1-8 thôi nhé!"
+                return "❌ Chọn số 1-5 thôi nhé!"
         except ValueError:
-            return "❌ Gõ /m <số> (1-8)"
-    
-    # Mistral AI model shortcuts
-    if cmd == "mistral_small":
-        await set_user_model(user_id, "mistral_small")
-        return f"✅ 已切換至 {MODEL_REGISTRY['mistral_small']['display']}。"
-    
-    if cmd == "mistral_medium":
-        await set_user_model(user_id, "mistral_medium")
-        return f"✅ 已切換至 {MODEL_REGISTRY['mistral_medium']['display']}。"
-    
-    if cmd == "mistral_large":
-        await set_user_model(user_id, "mistral_large")
-        return f"✅ 已切換至 {MODEL_REGISTRY['mistral_large']['display']}。"
-    
-    if cmd == "codestral":
-        await set_user_model(user_id, "codestral")
-        return f"✅ 已切換至 {MODEL_REGISTRY['codestral']['display']}。"
-    
-    if cmd == "pixtral":
-        await set_user_model(user_id, "pixtral")
-        return f"✅ 已切換至 {MODEL_REGISTRY['pixtral']['display']}。"
+            return "❌ Gõ /m <số> (1-5)"
 
     if cmd == "long":
         val = int(arg) if arg.isdigit() else 3000
@@ -306,9 +282,8 @@ def _models_list_text() -> str:
         "📋 Con mèo ngốc 🐱 — LỆNH NHANH\n"
         "\n"
         "🔥 MODELS (gõ /m <số>)\n"
-        "1🐿 Mistral Small | 2🦊 Medium | 3🦁 Large\n"
-        "4💻 Codestral | 5👁 Pixtral\n"
-        "6⚡ Llama 8B | 7🦙 Llama 70B | 8🧠 Qwen3\n"
+        "1⚡ Llama 8B | 2🦙 Llama 70B | 3🧠 Qwen3\n"
+        "4⚡ Groq Fast | 5🦙 Groq Large\n"
         "\n"
         "🤖 AI MODES\n"
         "/a — Auto model | /p <câu hỏi> — Pro mode\n"
