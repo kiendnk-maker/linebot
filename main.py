@@ -114,6 +114,7 @@ _REPLY_TRIGGERS = ["bot", "ai", "bolt", "trợ lý", "em ơi", "bạn ơi"]
 
 
 async def _process_event_inner(event: MessageEvent) -> None:
+    logger.info(f"[EVENT] user={event.source.user_id} msg_type={type(event.message).__name__}")
     user_id = event.source.user_id
 
     async with AsyncApiClient(line_config) as api_client:
@@ -322,6 +323,13 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 logger.error(f"Reply error: {e}")
 
 
+
+async def _run_event(event):
+    try:
+        await _process_event_inner(event)
+    except Exception as e:
+        logger.error(f"[CRASH] {type(e).__name__}: {e}", exc_info=True)
+
 @app.post("/webhook")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     signature = request.headers.get("X-Line-Signature", "")
@@ -333,6 +341,6 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 
     for event in events:
         if isinstance(event, MessageEvent):
-            background_tasks.add_task(_process_event_inner, event)
+            background_tasks.add_task(_run_event, event)
 
     return "OK"
