@@ -4,14 +4,14 @@ tests/test_model_routing.py — Test LLM model routing logic in llm_core.py.
 Tests resolve_model() which returns (model_key, model_id) based on query
 content and user preferences — without calling any API.
 
-NOTE: llm_core.DEFAULT_MODEL_KEY = "large". Routing only kicks in when the
+NOTE: llm_core.DEFAULT_MODEL_KEY = "small". Routing only kicks in when the
 user is on the default model. Explicit non-default choice is returned as-is.
 """
 import pytest
 from unittest.mock import AsyncMock, patch
 
 
-async def _resolve(text: str, user_model: str = "large") -> tuple[str, str]:
+async def _resolve(text: str, user_model: str = "small") -> tuple[str, str]:
     """Call resolve_model with mocked user settings and classifier."""
     with (
         patch("llm_core.get_user_model",     new=AsyncMock(return_value=user_model)),
@@ -24,11 +24,10 @@ async def _resolve(text: str, user_model: str = "large") -> tuple[str, str]:
 # ── User preference overrides routing ────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_explicit_small_model_is_respected():
-    """If user explicitly set 'small' (non-default), routing is skipped."""
-    key, model_id = await _resolve("hello", user_model="small")
-    assert key == "small"
-    assert model_id == "mistral-small-latest"
+async def test_explicit_large_model_is_respected():
+    """If user explicitly set 'large' (non-default), routing is skipped."""
+    key, model_id = await _resolve("hello", user_model="large")
+    assert key == "large"
 
 
 @pytest.mark.asyncio
@@ -38,55 +37,57 @@ async def test_explicit_coder_model_is_respected():
     assert key == "coder"
 
 
-# ── Content-based routing (user is on default 'large') ───────────────────────
+# ── Content-based routing (user is on default 'small') ───────────────────────
 
 @pytest.mark.asyncio
-async def test_code_query_routes_to_coder():
-    """'def fibonacci():' should route to coder (Codestral)."""
-    key, model_id = await _resolve("def fibonacci(): viết hàm này cho tôi", user_model="large")
-    assert key == "coder"
-    assert model_id == "codestral-latest"
-
-
-@pytest.mark.asyncio
-async def test_math_keyword_routes_to_reason():
-    """'tính toán xác suất' should route to reason (Magistral)."""
-    key, model_id = await _resolve("tính toán xác suất của 3 sự kiện độc lập", user_model="large")
-    assert key == "reason"
-    assert model_id == "magistral-medium-latest"
+async def test_math_keyword_routes_to_small():
+    """Vietnamese math keywords in resolve_model route directly to 'small'."""
+    key, model_id = await _resolve("tính toán xác suất của 3 sự kiện độc lập")
+    assert key == "small"
+    assert model_id == "mistral-small-latest"
 
 
 @pytest.mark.asyncio
 async def test_long_text_routes_to_large():
     """Text >500 chars without '?' routes to 'large' for summarization."""
     long_text = "đây là một đoạn văn rất dài " * 30  # >500 chars, no ?
-    key, _ = await _resolve(long_text, user_model="large")
+    key, _ = await _resolve(long_text)
     assert key == "large"
 
 
 @pytest.mark.asyncio
 async def test_simple_greeting_falls_to_classifier():
     """Simple greeting with no signals uses classifier result."""
-    key, _ = await _resolve("xin chào, bạn khỏe không?", user_model="large")
+    key, _ = await _resolve("xin chào, bạn khỏe không?")
     # Classifier mocked to return "small"
     assert key == "small"
 
 
 @pytest.mark.asyncio
-async def test_python_keyword_routes_to_coder():
-    key, _ = await _resolve("python code to sort a list", user_model="large")
-    assert key == "coder"
+async def test_code_query_falls_to_classifier():
+    """Code queries have no special routing — classifier decides."""
+    key, _ = await _resolve("def fibonacci(): viết hàm này cho tôi")
+    # Classifier mocked to return "small"
+    assert key == "small"
+
+
+@pytest.mark.asyncio
+async def test_long_text_with_question_falls_to_classifier():
+    """Long text WITH '?' is a question, not summarization — uses classifier."""
+    long_text = "đây là một đoạn văn rất dài " * 30 + "?"
+    key, _ = await _resolve(long_text)
+    # Falls to classifier (mocked → "small")
+    assert key == "small"
 
 
 # ── Model registry completeness ───────────────────────────────────────────────
 
 def test_llm_core_registry_has_required_keys():
-    """llm_core.MODEL_REGISTRY must have all required fields."""
+    """llm_core.MODEL_REGISTRY must have required fields (tier removed in new schema)."""
     from llm_core import MODEL_REGISTRY
     for key, cfg in MODEL_REGISTRY.items():
         assert "model_id" in cfg, f"Missing model_id for {key}"
         assert "display"  in cfg, f"Missing display for {key}"
-        assert "tier"     in cfg, f"Missing tier for {key}"
         assert "note"     in cfg, f"Missing note for {key}"
 
 
