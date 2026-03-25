@@ -44,7 +44,7 @@ async def test_math_keyword_routes_to_small():
     """Vietnamese math keywords in resolve_model route directly to 'small'."""
     key, model_id = await _resolve("tính toán xác suất của 3 sự kiện độc lập")
     assert key == "small"
-    assert model_id == "mistral-small-latest"
+    assert model_id == "llama-3.1-8b-instant"
 
 
 @pytest.mark.asyncio

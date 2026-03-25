@@ -75,6 +75,47 @@ Expert programmer mode. Prioritize clean, well-commented code. After the code, e
 # silently overwritten. This is the single canonical registry.
 
 MODEL_REGISTRY: dict[str, dict] = {
+    # Mistral AI models
+    "mistral_small": {
+        "model_id": "mistral-small-latest",
+        "type": "text",
+        "provider": "mistral",
+        "display": "Mistral Small 🐿",
+        "ctx": 32_768,
+        "note": "Mistral AI nhỏ gọn, nhanh nhẹn",
+    },
+    "mistral_medium": {
+        "model_id": "mistral-medium-latest",
+        "type": "text",
+        "provider": "mistral",
+        "display": "Mistral Medium 🦊",
+        "ctx": 32_768,
+        "note": "Mistral AI cân bằng, đa năng",
+    },
+    "mistral_large": {
+        "model_id": "mistral-large-latest",
+        "type": "text",
+        "provider": "mistral",
+        "display": "Mistral Large 🦁",
+        "ctx": 32_768,
+        "note": "Mistral AI mạnh mẽ, reasoning",
+    },
+    "codestral": {
+        "model_id": "codestral-latest",
+        "type": "text",
+        "provider": "mistral",
+        "display": "Codestral 💻",
+        "ctx": 32_768,
+        "note": "Mistral AI chuyên code",
+    },
+    "pixtral": {
+        "model_id": "pixtral-latest",
+        "type": "vision",
+        "provider": "mistral",
+        "display": "Pixtral 👁",
+        "ctx": 32_768,
+        "note": "Mistral AI vision model",
+    },
     # Groq models
     "groq_fast": {
         "model_id": "llama-3.1-8b-instant",

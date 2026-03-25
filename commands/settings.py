@@ -96,6 +96,27 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
         await set_user_model(user_id, target)
         return f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
 
+    # Mistral AI model shortcuts
+    if cmd == "mistral_small":
+        await set_user_model(user_id, "mistral_small")
+        return f"✅ 已切換至 {MODEL_REGISTRY['mistral_small']['display']}。"
+    
+    if cmd == "mistral_medium":
+        await set_user_model(user_id, "mistral_medium")
+        return f"✅ 已切換至 {MODEL_REGISTRY['mistral_medium']['display']}。"
+    
+    if cmd == "mistral_large":
+        await set_user_model(user_id, "mistral_large")
+        return f"✅ 已切換至 {MODEL_REGISTRY['mistral_large']['display']}。"
+    
+    if cmd == "codestral":
+        await set_user_model(user_id, "codestral")
+        return f"✅ 已切換至 {MODEL_REGISTRY['codestral']['display']}。"
+    
+    if cmd == "pixtral":
+        await set_user_model(user_id, "pixtral")
+        return f"✅ 已切換至 {MODEL_REGISTRY['pixtral']['display']}。"
+
     if cmd == "long":
         val = int(arg) if arg.isdigit() else 3000
         val = min(val, 6000)
@@ -250,15 +271,18 @@ def _models_list_text() -> str:
     return (
         "📋 Con mèo ngốc 🐱 — DANH SÁCH LỆNH\n"
         "\n"
-        "━━ Models (Mistral) ━━\n"
-        "💬 /small — Mistral Small 4\n"
-        "💬 /large — Mistral Large 3\n"
-        "💬 /coder — Codestral (code)\n"
-        "👁 /vision — Pixtral Large\n"
+        "━━ Models (Mistral AI) ━━\n"
+        "🐿 /mistral_small — Mistral Small (nhanh)\n"
+        "🦊 /mistral_medium — Mistral Medium (cân bằng)\n"
+        "🦁 /mistral_large — Mistral Large (mạnh)\n"
+        "💻 /codestral — Codestral (chuyên code)\n"
+        "👁 /pixtral — Pixtral (vision)\n"
         "\n"
         "━━ Models (Groq FREE) ━━\n"
+        "⚡ /small — Llama 3.1 8B (siêu nhanh)\n"
+        "🦙 /large — Llama 3.3 70B (đa năng)\n"
         "🧠 /reason — Qwen3 32B (reasoning)\n"
-        "👁 /llama — LLaMA 4 Scout (vision)\n"
+        "🚀 /llama — LLaMA 4 Scout (vision)\n"
         "\n"
         "━━ AI Modes ━━\n"
         "🤖 /auto — Tự chọn model\n"
