@@ -322,18 +322,21 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 chunks = [reply[i:i+5000] for i in range(0, len(reply), 5000)]
                 messages = [TextMessage(text=c) for c in chunks]
 
-                # Auto-export to Google Drive if response is very long (>10k chars)
-                if len(reply) > 10000:
+                # Auto-export to Google Drive if response is long (>5k chars)
+                if len(reply) > 5000:
                     try:
                         from commands.data import export_to_drive
                         import datetime
-                        filename = f"response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                        # Create a better filename with context
+                        first_line = reply.split('\n')[0][:30].replace(' ', '_') if reply else "response"
+                        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                        filename = f"{first_line}_{timestamp}.txt"
                         drive_link = await export_to_drive(user_id, reply, filename)
                         # Add drive link as last message
-                        messages.append(TextMessage(text=f"📤 Full response exported to Google Drive:\n🔗 {drive_link}"))
-                    except Exception:
+                        messages.append(TextMessage(text=f"📤 Full answer too long! Exported to Google Drive:\n🔗 {drive_link}\n\nYou can read the complete answer there."))
+                    except Exception as e:
                         # If export fails, just continue without it
-                        pass
+                        logger.info(f"Auto-export failed (user may not have Google Drive linked): {e}")
 
                 if qr_items and messages:
                     messages[-1] = TextMessage(

@@ -278,9 +278,9 @@ async def call_mistral_text(
                 fallback_msg = (
                     f"⚠️ Model {model_name} yêu cầu API Mistral chưa được cấu hình.\n\n"
                     f"💡 Bạn có thể:\n"
-                    f"1. Sử dụng model khác: /models để xem danh sách\n"
-                    f"2. Xuất câu hỏi lên Google Drive: /export <câu hỏi của bạn>\n"
-                    f"3. Liên hệ admin để cấu hình API Mistral"
+                    f"1. Chuyển sang model Groq luôn sẵn sàng: /m 6 (Llama 8B) hoặc /m 7 (Llama 70B)\n"
+                    f"2. Xuất câu hỏi lên Google Drive để lưu lại: /export <câu hỏi của bạn>\n"
+                    f"3. Liên hệ admin để cấu hình API Mistral trong tương lai"
                 )
                 return fallback_msg
             except Exception:
