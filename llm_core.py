@@ -282,7 +282,7 @@ def strip_markdown(text: str) -> str:
 # ═══════════════════════════════════════════════════════════════════
 # CORE TEXT API — with web_search tool support
 # ═══════════════════════════════════════════════════════════════════
-async def call_mistral_text(
+async def call_mistral_text_inner(
     history: list[dict],
     model_id: str,
     model_key: str = DEFAULT_MODEL_KEY,
@@ -404,3 +404,16 @@ def _split_reply(reply: str) -> list[str]:
         reply = reply[cut:].strip()
     if reply: chunks.append(reply)
     return chunks[:5]
+
+
+async def call_mistral_text(history, model_id, model_key="large", user_id=None, rag_chunks=None):
+    """Safe wrapper — always returns str, never None."""
+    try:
+        result = await call_mistral_text_inner(history, model_id, model_key=model_key, user_id=user_id, rag_chunks=rag_chunks)
+        if result is None:
+            return "⚠️ Model không trả về phản hồi. Vui lòng thử lại."
+        return result
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"call_mistral_text error: {e}", exc_info=True)
+        return f"⚠️ Lỗi: {str(e)[:200]}"
