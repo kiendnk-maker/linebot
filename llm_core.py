@@ -319,10 +319,26 @@ async def call_mistral_text_inner(
     while clean_history and clean_history[-1]["role"] == "assistant":
         clean_history.pop()
 
-    # Language forcer
+    # Language forcer removed — system prompt handles language.
     if user_id and clean_history and clean_history[-1]["role"] == "user":
-        # Language is controlled by system prompt — forcer removed.
         pass
+
+    # ── API CALL ──────────────────────────────────────────────────────────
+    user_max = await get_user_max_tokens(user_id) if user_id else 800
+    max_tok = user_max if user_max != 800 else 1500
+
+    client = global_groq_client
+    try:
+        resp = await client.chat.completions.create(
+            model=model_id,
+            messages=[{"role": "system", "content": system}] + clean_history,
+            temperature=0.6,
+            max_tokens=max_tok,
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.error(f"LLM API error [{model_id}]: {e}")
+        return f"⚠️ Lỗi API: {str(e)[:150]}"
 
 
 async def call_mistral_vision(image_b64: str, user_id: str | None = None) -> str:
