@@ -254,7 +254,10 @@ async def call_mistral_text(
             clean_history.pop()
 
         user_max = await get_user_max_tokens(user_id) if user_id else 800
-        max_tok  = user_max if user_max != 800 else 1500
+        # Smart token limit: 800 default, 1500 only for detailed requests
+        _last_msg = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+        _is_detail = any(kw in _last_msg.lower() for kw in ("chi tiết", "detail", "liệt kê", "list all", "全部", "詳細"))
+        max_tok = user_max if user_max != 800 else (1500 if _is_detail else 800)
 
         resp = await mistral_client.chat.completions.create(
             model=model_id,

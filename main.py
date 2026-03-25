@@ -123,7 +123,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
 
         try:
             await line_api.show_loading_animation(
-                ShowLoadingAnimationRequest(chat_id=user_id, loading_seconds=10)
+                ShowLoadingAnimationRequest(chat_id=user_id, loading_seconds=30)
             )
         except Exception:
             pass
