@@ -63,11 +63,26 @@ def _needs_realtime(text: str) -> bool:
 async def classify_query(user_text: str) -> str:
     """Keyword-based routing — no extra API call."""
     t = user_text.lower()
+    
+    # Reasoning detection - route to Qwen3 for complex thinking
+    reasoning_keywords = {
+        "logic", "suy luận", "phân tích", "so sánh", "đánh giá", "review",
+        "phân tích", "so sánh", "đánh giá", "review", "critique", "analyze",
+        "pro", "con", "ưu", "nhược", "advantage", "disadvantage",
+        "why", "tại sao", "explain", "giải thích", "hãy phân tích",
+        "strategy", "chiến lược", "plan", "kế hoạch", "solution", "giải pháp"
+    }
+    
+    # Check reasoning first (before math keywords to avoid conflicts)
+    # Use substring matching for Vietnamese multi-word keywords
+    if any(k in t for k in reasoning_keywords):
+        return "qwen3"  # Route complex reasoning to Qwen3
+    
     if any(k in t for k in {"code", "debug", "python", "javascript", "lập trình", "viết hàm", "sql"}):
         return "large"
     if any(k in t for k in {"toán", "tính", "math", "equation", "đạo hàm", "tích phân"}):
         return "small"
-    if any(k in t for k in {"viết", "dịch", "translate", "tóm tắt", "summarize", "phân tích"}):
+    if any(k in t for k in {"viết", "dịch", "translate", "tóm tắt", "summarize"}):
         return "large"
     if len(user_text) < 30:
         return "small"
