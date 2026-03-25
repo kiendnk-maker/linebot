@@ -363,3 +363,44 @@ async def call_mistral_vision(image_b64: str, user_id: str | None = None) -> str
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         return f"⚠️ 視覺錯誤: {str(e)[:150]}"
+
+
+async def call_groq_whisper(audio_bytes: bytes) -> str:
+    client = global_groq_client
+    try:
+        result = await client.audio.transcriptions.create(
+            file=("audio.m4a", audio_bytes),
+            model="whisper-large-v3-turbo",
+        )
+        return result.text
+    except Exception as e:
+        return f"⚠️ Whisper 錯誤: {str(e)[:150]}"
+
+
+async def clean_transcript(transcript: str) -> str:
+    client = global_groq_client
+    try:
+        resp = await client.chat.completions.create(
+            model=MODEL_REGISTRY["large"]["model_id"],
+            messages=[{"role": "user", "content": (
+                "Fix speech-to-text errors. Return only the corrected text, no explanation.\n"
+                f"Transcript: {transcript}"
+            )}],
+            temperature=0.0,
+            max_tokens=300,
+        )
+        cleaned = resp.choices[0].message.content.strip()
+        return cleaned if cleaned else transcript
+    except Exception:
+        return transcript
+
+
+def _split_reply(reply: str) -> list[str]:
+    chunks = []
+    while len(reply) > 4990:
+        cut = reply.rfind(" ", 0, 4990)
+        if cut == -1: cut = 4990
+        chunks.append(reply[:cut])
+        reply = reply[cut:].strip()
+    if reply: chunks.append(reply)
+    return chunks[:5]
