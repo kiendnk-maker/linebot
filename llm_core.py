@@ -69,17 +69,17 @@ def _needs_realtime(text: str) -> bool:
 
 
 async def classify_query(user_text: str) -> str:
-    try:
-        resp = await mistral_client.chat.completions.create(
-            model=MODEL_REGISTRY[CLASSIFIER_MODEL_KEY]["model_id"],
-            messages=[{"role": "user", "content": _CLASSIFIER_PROMPT.format(message=user_text[:400])}],
-            temperature=0.0,
-            max_tokens=5,
-        )
-        cat = resp.choices[0].message.content.strip().lower()
-        return ROUTE_MAP.get(cat, DEFAULT_MODEL_KEY)
-    except Exception:
-        return DEFAULT_MODEL_KEY
+    """Keyword-based routing — no extra API call."""
+    t = user_text.lower()
+    if any(k in t for k in {"code", "debug", "python", "javascript", "lập trình", "viết hàm", "sql"}):
+        return "large"
+    if any(k in t for k in {"toán", "tính", "math", "equation", "đạo hàm", "tích phân"}):
+        return "small"
+    if any(k in t for k in {"viết", "dịch", "translate", "tóm tắt", "summarize", "phân tích"}):
+        return "large"
+    if len(user_text) < 30:
+        return "small"
+    return DEFAULT_MODEL_KEY
 
 
 async def resolve_model(user_id: str, user_text: str) -> tuple[str, str]:
