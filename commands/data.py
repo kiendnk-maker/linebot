@@ -20,6 +20,22 @@ async def handle_data_command(user_id: str, cmd: str, arg: str) -> str | None:
     if cmd == "mn":
         return await handle_money_command(user_id, arg)
 
+    if cmd == "export":
+        if not arg:
+            return "⚠️ Gõ /export <nội dung> để lưu vào Google Drive"
+        # Extract filename if provided, otherwise use timestamp
+        parts = arg.split("|", 1)
+        if len(parts) == 2:
+            content, filename = parts[0].strip(), parts[1].strip()
+        else:
+            content, filename = arg.strip(), f"export_{datetime.now(TZ).strftime('%Y%m%d_%H%M%S')}.txt"
+        
+        if not filename.endswith('.txt'):
+            filename += '.txt'
+            
+        link = await export_to_drive(user_id, content, filename)
+        return f"📤 Đã export:\n🔗 {link}"
+
     if cmd == "rag":
         sub = arg.lower().split(maxsplit=1)
         sub_cmd = sub[0] if sub else ""
@@ -174,3 +190,33 @@ async def _handle_audio(user_id: str, arg: str) -> str:
     if link:
         out += f"\n🔗 {link}"
     return out
+
+
+# Export long text to Google Drive
+async def export_to_drive(user_id: str, content: str, filename: str) -> str:
+    """Export text content to Google Drive and return shareable link."""
+    try:
+        import httpx, json
+        from google_workspace import get_google_access_token
+        token = await get_google_access_token(user_id)
+        if not token:
+            return "(Gửi /login để liên kết Google Drive)"
+        
+        metadata = {"name": filename, "mimeType": "text/plain"}
+        files = {
+            "metadata": ("metadata.json", json.dumps(metadata), "application/json"),
+            "file": (filename, content.encode("utf-8"), "text/plain"),
+        }
+        async with httpx.AsyncClient() as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            resp = await client.post(
+                "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+                headers=headers, files=files, timeout=20.0,
+            )
+            if resp.status_code == 200:
+                file_id = resp.json().get("id")
+                return f"https://drive.google.com/file/d/{file_id}/view"
+            else:
+                return f"(Lỗi upload: HTTP {resp.status_code})"
+    except Exception as e:
+        return f"(Lỗi: {str(e)[:40]})"

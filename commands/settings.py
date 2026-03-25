@@ -83,6 +83,10 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
     if cmd == "models":
         return _models_list_text()
 
+    if cmd == "export":
+        # This will be handled in data.py, but we can show help here
+        return "⚠️ Gõ /export <nội dung> để lưu vào Google Drive"
+
     if cmd == "model":
         if not arg:
             key = await get_user_model(user_id)
@@ -324,5 +328,6 @@ def _models_list_text() -> str:
         "\n"
         "⚙ CÀI ĐẶT\n"
         "/vi | /tw | /long | /short\n"
-        "/clear | /usage | /models"
+        "/clear | /usage | /models\n"
+        "📤 /export <text> — Lưu vào Drive"
     )
