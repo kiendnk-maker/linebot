@@ -323,3 +323,43 @@ async def call_mistral_text(
     if user_id and clean_history and clean_history[-1]["role"] == "user":
         # Language is controlled by system prompt — forcer removed.
         pass
+
+
+async def call_mistral_vision(image_b64: str, user_id: str | None = None) -> str:
+    """Vision wrapper — delegates to call_mistral_text with image content."""
+    import aiosqlite
+    from database import DB_PATH
+
+    system = (
+        await build_system_prompt(user_id, VISION_MODEL_KEY)
+        if user_id
+        else get_system_prompt(VISION_MODEL_KEY)
+    )
+    vision_prompt = "Hãy mô tả chi tiết hình ảnh. Nếu có chữ, hãy trích xuất đầy đủ."
+    if user_id:
+        try:
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute(
+                    "SELECT language FROM user_settings WHERE user_id = ?", (user_id,)
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row and row[0] == "zh-TW":
+                        vision_prompt = "請詳細描述這張圖片的所有內容。若有文字請完整擷取，使用繁體中文。"
+        except Exception:
+            pass
+    client = global_groq_client
+    try:
+        resp = await client.chat.completions.create(
+            model=MODEL_REGISTRY[VISION_MODEL_KEY]["model_id"],
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": [
+                    {"type": "text", "text": vision_prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                ]},
+            ],
+            max_tokens=800,
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        return f"⚠️ 視覺錯誤: {str(e)[:150]}"
