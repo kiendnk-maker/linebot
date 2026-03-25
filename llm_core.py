@@ -227,6 +227,10 @@ async def call_mistral_text(
     rag_chunks: list[dict] | None = None,
 ) -> str:
     """Call Mistral text model. Always returns str."""
+    # Check if user wants detailed response (skip bullet limit)
+    _detail_keywords = ("chi tiết", "detailed", "detail", "list all", "liệt kê", "列出", "詳細")
+    _last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+    _want_detail = any(kw in _last_user.lower() for kw in _detail_keywords)
     try:
         system = (
             await build_system_prompt(user_id, model_key)
@@ -259,7 +263,9 @@ async def call_mistral_text(
             max_tokens=max_tok,
         )
         result = (resp.choices[0].message.content or "").strip()
-        return result if result else "⚠️ Model không trả về phản hồi. Vui lòng thử lại."
+        if _want_detail:
+            return result if result else "⚠️ Model không trả về phản hồi. Vui lòng thử lại."
+        return strip_markdown(result) if result else "⚠️ Model không trả về phản hồi. Vui lòng thử lại."
 
     except Exception as e:
         logger.error(f"call_mistral_text error [{model_id}]: {e}")
