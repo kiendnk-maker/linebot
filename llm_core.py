@@ -265,6 +265,37 @@ async def get_history_with_summary(user_id: str) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════
 # MARKDOWN STRIPPER (for LINE plain text)
 # ═══════════════════════════════════════════════════════════════════
+def _enforce_bullet_limit(text: str, max_bullets: int = 3) -> str:
+    """Nếu có > max_bullets dòng bullet, gộp thành đoạn văn."""
+    import re
+    lines = text.splitlines()
+    bullet_lines = [(i, l) for i, l in enumerate(lines) if l.strip().startswith("•")]
+    if len(bullet_lines) <= max_bullets:
+        return text
+    # Gộp tất cả bullets thành prose paragraphs (nhóm 3)
+    result = []
+    i = 0
+    bullet_texts = []
+    for idx, line in enumerate(lines):
+        if line.strip().startswith("•"):
+            bullet_texts.append(line.strip()[1:].strip())
+        else:
+            if bullet_texts:
+                # Gộp thành đoạn văn
+                while bullet_texts:
+                    chunk = bullet_texts[:3]
+                    bullet_texts = bullet_texts[3:]
+                    result.append(". ".join(chunk) + ".")
+                result.append("")
+            result.append(line)
+    if bullet_texts:
+        while bullet_texts:
+            chunk = bullet_texts[:3]
+            bullet_texts = bullet_texts[3:]
+            result.append(". ".join(chunk) + ".")
+    return "
+".join(result)
+
 def strip_markdown(text: str) -> str:
     parts_text = re.split(r'(```.*?```)', text, flags=re.DOTALL)
     for i in range(0, len(parts_text), 2):
