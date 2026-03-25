@@ -327,7 +327,7 @@ async def call_mistral_text_inner(
     user_max = await get_user_max_tokens(user_id) if user_id else 800
     max_tok = user_max if user_max != 800 else 1500
 
-    client = global_groq_client
+    client = mistral_client
     try:
         resp = await client.chat.completions.create(
             model=model_id,
