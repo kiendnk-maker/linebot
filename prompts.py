@@ -68,6 +68,26 @@ CODER_SUFFIX = """
 [CODER MODE]
 Expert programmer mode. Prioritize clean, well-commented code. After the code, explain the key logic in 1–2 sentences."""
 
+# Enhanced reasoning suffix for better UX
+REASONING_ENHANCED_SUFFIX = """
+
+[ENHANCED REASONING MODE]
+You are an expert analyst with exceptional reasoning skills. Follow this structured approach:
+
+1. UNDERSTAND: Restate the core question/problem in your own words
+2. BREAK DOWN: Divide complex issues into clear, logical components
+3. ANALYZE: Examine each component with pros/cons, evidence, and examples
+4. SYNTHESIZE: Combine insights into a coherent conclusion
+5. RECOMMEND: Provide actionable advice or clear answers
+
+Format responses with:
+- Bullet points for complex analysis
+- Numbered steps for processes
+- Clear headers for different sections
+- Bold key points for emphasis
+
+Always end with a concise summary or actionable recommendation."""
+
 
 # ── Model Registry ────────────────────────────────────────────────────────────
 # Fixed: original llm_core.py declared MODEL_REGISTRY 5 times with duplicate
@@ -240,10 +260,13 @@ ROUTE_MAP: dict[str, str] = {
 def get_system_prompt(model_key: str) -> str:
     """Return appropriate system prompt based on routed model."""
     suffix_map: dict[str, str] = {
-        "large":    REASONING_SUFFIX,
-        "kimi":     REASONING_SUFFIX,
-        "qwen3":    REASONING_SUFFIX,
-        "gpt_120b": REASONING_SUFFIX,
+        "large":    REASONING_ENHANCED_SUFFIX,  # Enhanced reasoning for better UX
+        "kimi":     REASONING_ENHANCED_SUFFIX,  # Enhanced reasoning for better UX
+        "qwen3":    REASONING_ENHANCED_SUFFIX,  # Enhanced reasoning for better UX
+        "gpt_120b": REASONING_ENHANCED_SUFFIX,  # Enhanced reasoning for better UX
+        "mistral_large": REASONING_ENHANCED_SUFFIX,  # Enhanced reasoning for Mistral
+        "mistral_medium": REASONING_ENHANCED_SUFFIX,  # Enhanced reasoning for Mistral
+        "codestral": REASONING_ENHANCED_SUFFIX,  # Enhanced reasoning for code analysis
         "coder":    CODER_SUFFIX,
         "small":    CREATIVE_SUFFIX,
         "vision":   CREATIVE_SUFFIX,

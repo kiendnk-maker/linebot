@@ -80,12 +80,32 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
         await set_user_model(user_id, DEFAULT_MODEL_KEY)
         return "🤖 已切換至自動選擇模型模式。"
 
+    if cmd == "help" or cmd == "h":
+        return (
+            "📋 CON MÈO NGỐC 🐱 - TRỢ LÝ THÔNG MINH\n\n"
+            "🔥 Nhanh chóng:\n"
+            "/m <số> - Chọn model (1-5: Mistral, 6-9: Groq)\n"
+            "/a - Tự động chọn model\n"
+            "/p <câu hỏi> - Chế độ chuyên gia\n\n"
+            "🤖 Chức năng:\n"
+            "/export <nội dung> - Lưu vào Google Drive\n"
+            "/pro <vấn đề> - Phân tích chuyên sâu\n"
+            "/d <câu hỏi> - Tranh luận 2 phía\n"
+            "/ag <nhiệm vụ> - Trợ lý đa chức năng\n"
+            "/co <yêu cầu> - Chuyên gia lập trình\n\n"
+            "📧 Google:\n"
+            "/login - Kết nối tài khoản\n"
+            "/mail <số> - Đọc email\n"
+            "/cal - Xem lịch\n\n"
+            "💡 Gõ /models để xem tất cả model!"
+        )
+
     if cmd == "models":
         return _models_list_text()
 
     if cmd == "export":
         # This will be handled in data.py, but we can show help here
-        return "⚠️ Gõ /export <nội dung> để lưu vào Google Drive"
+        return "⚠️ Gõ /export <nội dung> để lưu vào Google Drive. Ví dụ: /export Câu hỏi của tôi|tên_file.txt"
 
     if cmd == "model":
         if not arg:

@@ -262,6 +262,21 @@ async def _process_event_inner(event: MessageEvent) -> None:
 
             # ── TEXT PIPELINE BÌNH THƯỜNG (không vướng Vision) ──────────
             else:
+                # Check if this is a new user and send welcome message
+                try:
+                    from database import is_new_user, get_welcome_message, mark_user_onboarded
+                    if await is_new_user(user_id):
+                        welcome_msg = await get_welcome_message(user_id)
+                        await line_api.push_message(
+                            PushMessageRequest(
+                                to=user_id,
+                                messages=[TextMessage(text=welcome_msg)]
+                            )
+                        )
+                        await mark_user_onboarded(user_id)
+                except Exception as e:
+                    logger.info(f"Welcome message check failed (not critical): {e}")
+
                 pending   = _pending_choice.get(user_id)
                 cmd_reply = None
 

@@ -302,3 +302,40 @@ async def clear_pending_image(user_id: str) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM image_cache WHERE user_id = ?", (user_id,))
         await db.commit()
+
+
+# ═══════════════════════════════════════════════════════════════
+# UX ENHANCEMENTS - Welcome messages and user onboarding
+# ═══════════════════════════════════════════════════════════════
+
+async def is_new_user(user_id: str) -> bool:
+    """Check if user has any interaction history."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM history WHERE user_id = ?", (user_id,)
+        ) as cur:
+            count = await cur.fetchone()
+        return count[0] == 0 if count else True
+
+
+async def mark_user_onboarded(user_id: str) -> None:
+    """Mark that user has seen welcome message."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO user_settings (user_id, onboarded) VALUES (?, 1) "
+            "ON CONFLICT(user_id) DO UPDATE SET onboarded = 1",
+            (user_id,)
+        )
+        await db.commit()
+
+
+async def get_welcome_message(user_id: str) -> str:
+    """Generate personalized welcome message for new users."""
+    return (
+        "🎉 Xin chào! Tôi là Con Mèo Ngốc 🐱 - trợ lý AI thông minh của bạn!\n\n"
+        "💡 Bắt đầu với:\n"
+        "/help - Xem tất cả lệnh\n"
+        "/models - Chọn model AI\n"
+        "/pro <câu hỏi> - Phân tích chuyên sâu\n\n"
+        "📱 Gõ bất kỳ câu hỏi nào để bắt đầu chat!"
+    )
