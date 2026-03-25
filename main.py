@@ -296,7 +296,9 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         ctx_str = "\n".join(rag_chunks)
                         history[-1]["content"] = f"Context:\n{ctx_str}\n\nQuestion: {user_text}"
 
+                    logger.info(f"[LLM] calling model_key={model_key} model_id={model_id}")
                     answer = await call_mistral_text(history, model_id, model_key=model_key)
+                    logger.info(f"[LLM] answer len={len(answer)} preview={answer[:80]!r}")
                     await save_message(user_id, "user",      user_text)
                     await save_message(user_id, "assistant", answer)
                     reply = answer
