@@ -109,6 +109,15 @@ MODEL_REGISTRY: dict[str, dict] = {
         "note": "Toán & lập luận, thinking mode, đa ngôn ngữ",
         "thinking": True,
     },
+    "reason": {
+        "model_id": "qwen/qwen3-32b",
+        "type": "reasoning",
+        "provider": "groq",
+        "display": "Qwen3 32B 🌟",
+        "ctx": 131_072,
+        "note": "Alias /reason → Qwen3 32B (toán & lập luận)",
+        "thinking": True,
+    },
     "kimi": {
         "model_id": "moonshotai/kimi-k2-instruct-0905",
         "type": "text",
