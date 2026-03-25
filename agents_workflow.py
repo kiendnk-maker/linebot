@@ -182,4 +182,83 @@ async def run_agentic_loop(user_id: str, prompt: str) -> str:
 
 
 async def run_debate(user_id: str, question: str, rounds: int = 2) -> str:
-    return "⚠️ Tính năng /debate đang được bảo trì (chưa có logic xử lý trong agents_workflow)."
+    """
+    /debate — Two AI perspectives debate a topic, then a judge synthesizes.
+
+    Flow:
+      For each round:
+        Side A (Pro)  — argues FOR the position
+        Side B (Con)  — argues AGAINST, responding to Side A's last point
+      Judge (Large)   — weighs both sides and delivers a verdict
+
+    All calls share the same model (mistral-large-latest) but with different
+    system prompts to keep the debate focused.
+    """
+    rounds = max(1, min(rounds, 4))
+
+    pro_messages: list[dict] = [
+        {
+            "role": "system",
+            "content": (
+                "Bạn là người tranh luận ủng hộ (Pro). "
+                "Hãy đưa ra lập luận mạnh mẽ, thuyết phục và có dẫn chứng cụ thể ỦNG HỘ quan điểm được đặt ra. "
+                "Trả lời ngắn gọn (tối đa 3 luận điểm), súc tích, không lặp lại."
+            ),
+        },
+        {"role": "user", "content": f"Chủ đề tranh luận: {question}"},
+    ]
+    con_messages: list[dict] = [
+        {
+            "role": "system",
+            "content": (
+                "Bạn là người tranh luận phản đối (Con). "
+                "Hãy phản bác lập luận của phía ủng hộ và đưa ra lý do PHẢN ĐỐI quan điểm đó. "
+                "Trả lời ngắn gọn (tối đa 3 luận điểm), súc tích, không lặp lại."
+            ),
+        },
+    ]
+
+    debate_log: list[str] = [f"⚔️ DEBATE: {question}\n({'vòng' if rounds == 1 else f'{rounds} vòng'})\n"]
+
+    for r in range(1, rounds + 1):
+        debate_log.append(f"━━ Vòng {r} ━━")
+
+        # Pro argues
+        pro_reply = await _call("mistral-large-latest", pro_messages, max_tokens=400, temperature=0.7)
+        debate_log.append(f"🟢 Pro:\n{pro_reply}")
+        pro_messages.append({"role": "assistant", "content": pro_reply})
+
+        # Con responds to Pro's last point
+        con_messages.append({"role": "user", "content": f"Phía ủng hộ vừa lập luận:\n{pro_reply}\n\nHãy phản bác."})
+        con_reply = await _call("mistral-large-latest", con_messages, max_tokens=400, temperature=0.7)
+        debate_log.append(f"🔴 Con:\n{con_reply}")
+        con_messages.append({"role": "assistant", "content": con_reply})
+
+        # Feed Con's response back to Pro for next round
+        pro_messages.append({"role": "user", "content": f"Phía phản đối vừa phản bác:\n{con_reply}\n\nHãy tiếp tục lập luận."})
+
+    # Judge synthesizes
+    full_debate = "\n\n".join(debate_log[1:])  # skip header for judge
+    verdict = await _call(
+        "mistral-large-latest",
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Bạn là trọng tài công tâm. Đánh giá cả hai phía tranh luận, "
+                    "chỉ ra điểm mạnh và điểm yếu của mỗi bên, rồi đưa ra kết luận cuối cùng. "
+                    "Ngắn gọn, trực tiếp, không thiên vị."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Chủ đề: {question}\n\nNội dung tranh luận:\n{full_debate}\n\nHãy đưa ra phán quyết.",
+            },
+        ],
+        max_tokens=600,
+        temperature=0.5,
+    )
+
+    debate_log.append("━━ Phán quyết ━━")
+    debate_log.append(f"⚖️ Trọng tài:\n{verdict}")
+    return "\n\n".join(debate_log)

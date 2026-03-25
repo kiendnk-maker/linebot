@@ -40,7 +40,18 @@ def _get_meta_lock() -> asyncio.Lock:
 _chroma_locks_meta = None
 _chroma_locks: dict[str, asyncio.Lock] = {}
 
-chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+_chroma_client = None  # Lazy singleton — initialized on first RAG use
+
+def _get_chroma_client() -> chromadb.PersistentClient:
+    """Return ChromaDB client, initializing it on first call (lazy init)."""
+    global _chroma_client
+    if _chroma_client is None:
+        _chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+    return _chroma_client
+
+async def warmup_chromadb() -> None:
+    """Pre-warm ChromaDB. Call from /warmup endpoint to avoid cold-start on first user request."""
+    _get_chroma_client()
 
 async def _get_chroma_lock(user_id: str) -> asyncio.Lock:
     """Return (and lazily create) a per-user asyncio.Lock for ChromaDB writes."""
@@ -50,7 +61,7 @@ async def _get_chroma_lock(user_id: str) -> asyncio.Lock:
         return _chroma_locks[user_id]
 
 def get_user_collection(user_id: str):
-    return chroma_client.get_or_create_collection(
+    return _get_chroma_client().get_or_create_collection(
         name=f"rag_{user_id}",
         metadata={"hnsw:space": "cosine"},
     )

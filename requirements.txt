@@ -12,3 +12,8 @@ python-docx
 cachetools
 
 openai
+simpleeval
+
+# Dev / test
+pytest
+pytest-asyncio

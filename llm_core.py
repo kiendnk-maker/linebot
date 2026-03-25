@@ -305,6 +305,8 @@ async def call_mistral_vision(
         else:
             user_prompt = "Hãy mô tả chi tiết hình ảnh. Nếu có chữ, hãy trích xuất đầy đủ."
 
+    # Language is controlled by system prompt — forcer removed.
+
     system = await build_system_prompt(user_id, VISION_MODEL_KEY) if user_id else get_system_prompt(VISION_MODEL_KEY)
 
     try:
