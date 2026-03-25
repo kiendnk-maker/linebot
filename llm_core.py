@@ -265,6 +265,27 @@ async def call_mistral_text(
 
     except Exception as e:
         logger.error(f"call_mistral_text error [{model_id}]: {e}")
+        error_str = str(e)
+        
+        # Check if this is a Mistral API access error
+        if "mistral" in model_id.lower() and ("404" in error_str or "not exist" in error_str or "access" in error_str):
+            try:
+                # Provide helpful fallback with Google Drive export option
+                from prompts import MODEL_REGISTRY
+                model_info = MODEL_REGISTRY.get(model_key, {})
+                model_name = model_info.get("display", model_key)
+                
+                fallback_msg = (
+                    f"⚠️ Model {model_name} yêu cầu API Mistral chưa được cấu hình.\n\n"
+                    f"💡 Bạn có thể:\n"
+                    f"1. Sử dụng model khác: /models để xem danh sách\n"
+                    f"2. Xuất câu hỏi lên Google Drive: /export <câu hỏi của bạn>\n"
+                    f"3. Liên hệ admin để cấu hình API Mistral"
+                )
+                return fallback_msg
+            except Exception:
+                pass
+        
         return f"⚠️ Lỗi: {str(e)[:200]}"
 
 
