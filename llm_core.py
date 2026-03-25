@@ -259,7 +259,10 @@ async def call_mistral_text(
         _is_detail = any(kw in _last_msg.lower() for kw in ("chi tiết", "detail", "liệt kê", "list all", "全部", "詳細"))
         max_tok = user_max if user_max != 800 else (1500 if _is_detail else 800)
 
-        resp = await mistral_client.chat.completions.create(
+        # Route to correct API based on provider field
+        provider = MODEL_REGISTRY.get(model_key, {}).get("provider", "mistral")
+        _client = groq_client if provider == "groq" else mistral_client
+        resp = await _client.chat.completions.create(
             model=model_id,
             messages=[{"role": "system", "content": system}] + clean_history,
             temperature=0.6,
