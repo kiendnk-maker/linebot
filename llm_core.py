@@ -293,8 +293,7 @@ def _enforce_bullet_limit(text: str, max_bullets: int = 3) -> str:
             chunk = bullet_texts[:3]
             bullet_texts = bullet_texts[3:]
             result.append(". ".join(chunk) + ".")
-    return "
-".join(result)
+    return "\n".join(result)
 
 def strip_markdown(text: str) -> str:
     parts_text = re.split(r'(```.*?```)', text, flags=re.DOTALL)
