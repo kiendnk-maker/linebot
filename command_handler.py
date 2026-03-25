@@ -177,7 +177,7 @@ async def handle_command(user_id: str, text: str) -> str | None:
             mode = "自動" if key == DEFAULT_MODEL_KEY else "手動"
             return (
                 f"🤖 目前模型：{cfg['display']}\n"
-                f"   Tier：{cfg['tier']} | 模式：{mode}\n"
+                f"   模式：{mode}\n"
                 f"   {cfg['note']}\n\n"
                 "輸入 /models 查看全部。\n"
                 "輸入 /auto 返回自動模式。"
