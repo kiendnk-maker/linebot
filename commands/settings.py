@@ -248,7 +248,7 @@ async def _handle_remind(user_id: str, arg: str) -> str:
 
 def _models_list_text() -> str:
     return (
-        "📋 ULTRA BOLT — DANH SÁCH LỆNH\n"
+        "📋 Con mèo ngốc 🐱 — DANH SÁCH LỆNH\n"
         "\n"
         "━━ Models (Mistral) ━━\n"
         "💬 /small — Mistral Small 4\n"
