@@ -17,11 +17,17 @@ from database import (
 
 logger = logging.getLogger(__name__)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 
 groq_client = AsyncOpenAI(
     api_key=GROQ_API_KEY,
     base_url="https://api.groq.com/openai/v1",
+)
+
+mistral_client = AsyncOpenAI(
+    api_key=MISTRAL_API_KEY or "placeholder",
+    base_url="https://api.mistral.ai/v1",
 )
 
 WHISPER_MODEL   = "whisper-large-v3-turbo"
@@ -266,7 +272,21 @@ async def call_mistral_text(
         _is_detail = any(kw in _last_msg.lower() for kw in ("chi tiết", "detail", "liệt kê", "list all", "全部", "詳細"))
         max_tok = user_max if user_max != 800 else (1500 if _is_detail else 800)
 
-        _client = groq_client
+        cfg = MODEL_REGISTRY.get(model_key, {})
+        if cfg.get("provider") == "mistral":
+            if not MISTRAL_API_KEY:
+                model_name = cfg.get("display", model_key)
+                return (
+                    f"⚠️ {model_name} yêu cầu API Mistral chưa được cấu hình.\n\n"
+                    "Chuyển sang model Groq luôn sẵn sàng:\n"
+                    "• /m 6 — Llama 3.1 8B (nhanh)\n"
+                    "• /m 7 — Llama 3.3 70B (mạnh)\n"
+                    "• /a — tự động chọn model"
+                )
+            _client = mistral_client
+        else:
+            _client = groq_client
+
         resp = await _client.chat.completions.create(
             model=model_id,
             messages=[{"role": "system", "content": system}] + clean_history,
@@ -352,7 +372,7 @@ async def call_mistral_vision(
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
-        return f"⚠️ 視覺錯誤: {str(e)[:150]}"
+        return f"⚠️ Lỗi nhận diện ảnh: {str(e)[:150]}"
 
 
 async def call_groq_whisper(audio_bytes: bytes) -> str:
@@ -363,7 +383,7 @@ async def call_groq_whisper(audio_bytes: bytes) -> str:
         )
         return result.text
     except Exception as e:
-        return f"⚠️ Whisper 錯誤: {str(e)[:150]}"
+        return f"⚠️ Lỗi nhận dạng giọng nói: {str(e)[:150]}"
 
 
 async def clean_transcript(transcript: str) -> str:
