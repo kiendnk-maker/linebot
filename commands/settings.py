@@ -3,11 +3,14 @@ commands/settings.py — User settings & system commands:
 /vi, /tw, /usage, /nuke, /clear, /auto, /model, /models,
 /long, /short, /tokens, /profile, /remind
 """
+import os
 import re
-import sqlite3
 import aiosqlite
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+_ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID", "")
+_SAFE_TABLE_NAME = re.compile(r'^[A-Za-z0-9_]+$')
 
 from tracker_core import get_usage_report
 from llm_core import MODEL_REGISTRY, DEFAULT_MODEL_KEY
@@ -48,18 +51,22 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
         return await get_usage_report()
 
     if cmd == "nuke":
+        if not _ADMIN_USER_ID or user_id != _ADMIN_USER_ID:
+            return "⛔ Lệnh này chỉ dành cho admin."
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-            cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables = cur.fetchall()
-            dropped = 0
-            for (t_name,) in tables:
-                if any(x in t_name.lower() for x in ["rag", "chunk", "vector", "embed", "collection"]):
-                    cur.execute(f"DROP TABLE IF EXISTS {t_name}")
-                    dropped += 1
-            conn.commit()
-            conn.close()
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table';"
+                ) as cur:
+                    tables = await cur.fetchall()
+                dropped = 0
+                for (t_name,) in tables:
+                    if not _SAFE_TABLE_NAME.match(t_name):
+                        continue  # skip unsafe table names
+                    if any(x in t_name.lower() for x in ["rag", "chunk", "vector", "embed", "collection"]):
+                        await db.execute(f"DROP TABLE IF EXISTS [{t_name}]")
+                        dropped += 1
+                await db.commit()
             return f"💥 BOOM! Đã nổ tung {dropped} bảng Vector DB cũ! Hệ thống RAG đã sạch sẽ, hãy gửi file mới để test."
         except Exception as e:
             return f"⚠️ Lỗi kích nổ DB: {e}"

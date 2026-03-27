@@ -2,6 +2,7 @@ import os
 import re
 import base64
 import json
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import httpx
@@ -11,21 +12,51 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from database import DB_PATH
 
+logger = logging.getLogger(__name__)
 TZ = ZoneInfo('Asia/Taipei')
 router = APIRouter()
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
-
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-
 RAILWAY_URL = "https://line-groq-bot-production-b699.up.railway.app"
+
+# ── Token encryption ─────────────────────────────────────────────────────────
+# Set GOOGLE_TOKEN_ENCRYPT_KEY to a Fernet key: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+_fernet = None
+
+def _get_fernet():
+    global _fernet
+    if _fernet is None:
+        from cryptography.fernet import Fernet
+        key = os.environ.get("GOOGLE_TOKEN_ENCRYPT_KEY", "")
+        if key:
+            _fernet = Fernet(key.encode())
+    return _fernet
+
+def _encrypt_token(token: str) -> str:
+    f = _get_fernet()
+    if f:
+        return f.encrypt(token.encode()).decode()
+    return token  # fallback: plaintext if key not configured
+
+def _decrypt_token(stored: str) -> str:
+    f = _get_fernet()
+    if f:
+        try:
+            return f.decrypt(stored.encode()).decode()
+        except Exception:
+            # Token stored before encryption was enabled — return as-is
+            logger.warning("Could not decrypt token; treating as plaintext (migration needed)")
+            return stored
+    return stored
+# ─────────────────────────────────────────────────────────────────────────────
 
 async def get_google_access_token(user_id: str) -> str | None:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT refresh_token FROM google_auth WHERE user_id = ?", (user_id,)) as cur:
             row = await cur.fetchone()
     if not row: return None
-    refresh_token = row[0]
+    refresh_token = _decrypt_token(row[0])
     
     async with httpx.AsyncClient() as client:
         resp = await client.post("https://oauth2.googleapis.com/token", data={
@@ -51,10 +82,11 @@ async def google_callback(code: str, state: str):
         })
         data = resp.json()
         if "refresh_token" in data:
+            encrypted = _encrypt_token(data["refresh_token"])
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute(
                     "INSERT INTO google_auth (user_id, refresh_token) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET refresh_token = excluded.refresh_token",
-                    (user_id, data["refresh_token"])
+                    (user_id, encrypted)
                 )
                 await db.commit()
             return HTMLResponse("<h1>✅ Cấp quyền thành công!</h1><p>Hệ thống đã kết nối với tài khoản Google. Bạn có thể đóng trang này và quay lại LINE chat với bot.</p>")

@@ -188,7 +188,7 @@ async def clear_rag_docs(user_id: str) -> int:
     lock = await _get_chroma_lock(user_id)
     async with lock:
         try:
-            chroma_client.delete_collection(f"rag_{user_id}")
+            _get_chroma_client().delete_collection(f"rag_{user_id}")
         except Exception:
             pass
     return len(docs)
@@ -215,7 +215,7 @@ async def rag_search(
             if "dimension" in str(dim_err).lower():
                 logger.warning(f"Dimension mismatch for {user_id}, deleting old collection")
                 try:
-                    chroma_client.delete_collection(f"rag_{user_id}")
+                    _get_chroma_client().delete_collection(f"rag_{user_id}")
                 except Exception:
                     pass
                 return []

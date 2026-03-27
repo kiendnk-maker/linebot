@@ -21,7 +21,11 @@ from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, AudioMessageContent, ImageMessageContent
 )
 
-from database import init_db, DB_PATH, save_message, get_pending_image, clear_pending_image
+from database import (
+    init_db, DB_PATH, save_message, get_pending_image, clear_pending_image,
+    get_pending_choice, set_pending_choice, clear_pending_choice,
+    is_rag_disabled,
+)
 from llm_core import (
     resolve_model, call_mistral_text, call_mistral_vision,
     call_groq_whisper, clean_transcript, get_history_with_summary,
@@ -81,8 +85,19 @@ async def image_cache_cleanup_loop() -> None:
             logger.error(f"image_cache_cleanup_loop error: {e}")
 
 
+_REQUIRED_ENV = [
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET",
+]
+
 @app.on_event("startup")
 async def startup():
+    missing = [k for k in _REQUIRED_ENV if not os.environ.get(k)]
+    if missing:
+        raise RuntimeError(
+            f"FATAL: Missing required environment variables: {', '.join(missing)}. "
+            "Bot will not accept webhooks without these."
+        )
     await init_db()
     asyncio.create_task(image_cache_cleanup_loop())
 
@@ -99,9 +114,9 @@ async def warmup():
 
 
 # --- STATE MANAGEMENT ---
-_rag_disabled   = set()
-_pending_choice: dict[str, str] = {}
-# _pending_image: dùng DB (image_cache) thay in-memory để survive restart
+# _rag_disabled and _pending_choice are stored in DB (user_state table)
+# so they work correctly under multi-worker deployment.
+# _pending_image: uses DB (image_cache) to survive restarts
 _VISION_PROMPTS = {
     "1": (
         "請詳細描述這張圖片的內容、色彩、構圖與所有可見元素。"
@@ -175,7 +190,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         history = await get_history_with_summary(user_id)
 
                         rag_chunks = []
-                        if user_id not in _rag_disabled and await has_rag_docs(user_id):
+                        if not await is_rag_disabled(user_id) and await has_rag_docs(user_id):
                             rag_chunks = await rag_search(user_id, clean_text)
 
                         history.append({"role": "user", "content": clean_text})
@@ -197,7 +212,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         audio_id = (await cur.fetchone())[0]
                         await db.commit()
 
-                    _pending_choice[user_id] = f"audio:{audio_id}"
+                    await set_pending_choice(user_id, f"audio:{audio_id}")
                     reply = f"🎤 Đã bóc băng:\n{transcript}"
                     qr_items = [
                         QuickReplyItem(action=MessageAction(label="1️⃣ Tóm tắt", text="1")),
@@ -241,8 +256,10 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 if user_text.lower() in ("/hủy", "/cancel", "hủy"):
                     await clear_pending_image(user_id)
                     reply = "🗑 Đã hủy. Ảnh đã được xóa."
+                elif user_text not in _VISION_PROMPTS:
+                    reply = "⚠️ Vui lòng chọn 1, 2, 3 hoặc 4. Gõ /hủy để huỷ."
                 else:
-                    vision_prompt = _VISION_PROMPTS.get(user_text) or user_text
+                    vision_prompt = _VISION_PROMPTS[user_text]
                     async with aiosqlite.connect(DB_PATH) as db:
                         async with db.execute(
                             "SELECT image_b64 FROM image_cache WHERE id=? AND user_id=?",
@@ -277,7 +294,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 except Exception as e:
                     logger.info(f"Welcome message check failed (not critical): {e}")
 
-                pending   = _pending_choice.get(user_id)
+                pending   = await get_pending_choice(user_id)
                 cmd_reply = None
 
                 # Xử lý Quick Reply số (audio / mail) theo state
@@ -289,7 +306,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         cmd_reply = await handle_command(
                             user_id, f"/audio {audio_id} {user_text}"
                         )
-                    _pending_choice.pop(user_id, None)
+                    await clear_pending_choice(user_id)
 
                 # Xử lý lệnh bình thường
                 else:
@@ -297,7 +314,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
 
                     cmd_check = user_text.strip().lower()
                     if cmd_check in ["/mail", "/ls mail", "mail"] and cmd_reply and "1" in cmd_reply:
-                        _pending_choice[user_id] = "mail"
+                        await set_pending_choice(user_id, "mail")
                         qr_items = [
                             QuickReplyItem(action=MessageAction(
                                 label=f"{i}️⃣ Đọc mail {i}", text=str(i)
@@ -306,7 +323,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                     elif cmd_check.startswith("/audio "):
                         pass
                     elif cmd_reply:
-                        _pending_choice.pop(user_id, None)
+                        await clear_pending_choice(user_id)
 
                 if cmd_reply is not None:
                     reply = cmd_reply
@@ -315,7 +332,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
                     history = await get_history_with_summary(user_id)
 
                     rag_chunks = []
-                    if user_id not in _rag_disabled and await has_rag_docs(user_id):
+                    if not await is_rag_disabled(user_id) and await has_rag_docs(user_id):
                         rag_chunks = await rag_search(user_id, user_text)
 
                     history.append({"role": "user", "content": user_text})

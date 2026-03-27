@@ -6,7 +6,7 @@ import aiosqlite
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from database import DB_PATH
+from database import DB_PATH, set_rag_disabled
 from money_tracker import handle_money_command
 from rag_core import process_file_upload, list_rag_docs, delete_rag_doc, clear_rag_docs
 from agents_workflow import run_agentic_loop
@@ -64,13 +64,11 @@ async def handle_data_command(user_id: str, cmd: str, arg: str) -> str | None:
             return f"🗑 Đã xoá {n} tài liệu khỏi knowledge base."
 
         if sub_cmd == "off":
-            import main as _main
-            _main._rag_disabled.add(user_id)
-            return "🔕 RAG đã tắt cho session này. Dùng /rag on để bật lại."
+            await set_rag_disabled(user_id, True)
+            return "🔕 RAG đã tắt. Dùng /rag on để bật lại."
 
         if sub_cmd == "on":
-            import main as _main
-            _main._rag_disabled.discard(user_id)
+            await set_rag_disabled(user_id, False)
             return "🔔 RAG đã bật."
 
         return (

@@ -90,6 +90,14 @@ async def init_db() -> None:
                 created_at INTEGER NOT NULL
             )"""
         )
+        # User state — persisted across workers/restarts
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS user_state (
+                user_id        TEXT    PRIMARY KEY,
+                pending_choice TEXT,
+                rag_disabled   INTEGER DEFAULT 0
+            )"""
+        )
         await db.commit()
 
     # Tracker tables (once at startup, not on every save)
@@ -319,11 +327,13 @@ async def is_new_user(user_id: str) -> bool:
 
 
 async def mark_user_onboarded(user_id: str) -> None:
-    """Mark that user has seen welcome message."""
+    """Mark that user has seen welcome message (tracked via history count naturally)."""
+    # Ensure user_settings row exists with default model so subsequent
+    # get_user_model calls don't fall back to a missing row.
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO user_settings (user_id, onboarded) VALUES (?, 1) "
-            "ON CONFLICT(user_id) DO UPDATE SET onboarded = 1",
+            "INSERT INTO user_settings (user_id, model_key) VALUES (?, 'large') "
+            "ON CONFLICT(user_id) DO NOTHING",
             (user_id,)
         )
         await db.commit()
@@ -339,3 +349,53 @@ async def get_welcome_message(user_id: str) -> str:
         "/pro <câu hỏi> - Phân tích chuyên sâu\n\n"
         "📱 Gõ bất kỳ câu hỏi nào để bắt đầu chat!"
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# USER STATE — DB-backed, safe under multi-worker deployment
+# ═══════════════════════════════════════════════════════════════
+
+async def get_pending_choice(user_id: str) -> str | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT pending_choice FROM user_state WHERE user_id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def set_pending_choice(user_id: str, value: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO user_state (user_id, pending_choice) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET pending_choice = ?",
+            (user_id, value, value),
+        )
+        await db.commit()
+
+
+async def clear_pending_choice(user_id: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE user_state SET pending_choice = NULL WHERE user_id = ?", (user_id,)
+        )
+        await db.commit()
+
+
+async def set_rag_disabled(user_id: str, disabled: bool) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO user_state (user_id, rag_disabled) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET rag_disabled = ?",
+            (user_id, int(disabled), int(disabled)),
+        )
+        await db.commit()
+
+
+async def is_rag_disabled(user_id: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT rag_disabled FROM user_state WHERE user_id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return bool(row[0]) if row else False
