@@ -65,11 +65,11 @@ async def handle_data_command(user_id: str, cmd: str, arg: str) -> str | None:
 
         if sub_cmd == "off":
             await set_rag_disabled(user_id, True)
-            return "🔕 RAG đã tắt. Dùng /rag on để bật lại."
+            return "🔕 Đã tắt tìm kiếm tài liệu. Bot sẽ không dùng tài liệu của bạn cho đến khi gõ /rag on."
 
         if sub_cmd == "on":
             await set_rag_disabled(user_id, False)
-            return "🔔 RAG đã bật."
+            return "🔔 Đã bật tìm kiếm tài liệu."
 
         return (
             "📚 Lệnh RAG:\n"

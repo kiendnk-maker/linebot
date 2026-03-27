@@ -61,26 +61,13 @@ async def image_cache_cleanup_loop() -> None:
                 ) as cur:
                     expired = await cur.fetchall()
                 if expired:
-                    ids      = [r[0] for r in expired]
-                    user_ids = [r[1] for r in expired]
+                    ids = [r[0] for r in expired]
                     placeholders = ",".join("?" * len(ids))
                     await db.execute(
                         f"DELETE FROM image_cache WHERE id IN ({placeholders})", ids
                     )
                     await db.commit()
-                    for uid in user_ids:
-                        try:
-                            async with AsyncApiClient(line_config) as api_client:
-                                await AsyncMessagingApi(api_client).push_message(
-                                    PushMessageRequest(
-                                        to=uid,
-                                        messages=[TextMessage(
-                                            text="⏰ Ảnh đã hết hạn (10 phút). Vui lòng gửi lại."
-                                        )]
-                                    )
-                                )
-                        except Exception:
-                            pass
+                    logger.info(f"image_cache_cleanup: removed {len(ids)} expired entries")
         except Exception as e:
             logger.error(f"image_cache_cleanup_loop error: {e}")
 
@@ -119,22 +106,23 @@ async def warmup():
 # _pending_image: uses DB (image_cache) to survive restarts
 _VISION_PROMPTS = {
     "1": (
-        "請詳細描述這張圖片的內容、色彩、構圖與所有可見元素。"
+        "Hãy mô tả chi tiết nội dung, màu sắc, bố cục và tất cả các yếu tố nhìn thấy được trong ảnh này. "
+        "Trả lời bằng tiếng Việt."
     ),
     "2": (
-        "OCR任務：請將上方AI視覺描述中的所有文字原封不動地輸出。"
-        "嚴禁改寫、摘要、翻譯或省略任何文字。"
-        "保持原始語言、標點與排版結構。"
-        "若同時有多種語言（如中文+越南文），全部照原樣輸出。"
+        "Nhiệm vụ OCR: Hãy trích xuất và xuất ra toàn bộ văn bản trong ảnh, nguyên văn không thay đổi. "
+        "Giữ nguyên ngôn ngữ gốc, dấu câu và cấu trúc. "
+        "Nếu có nhiều ngôn ngữ, xuất tất cả theo đúng nguyên bản."
     ),
     "3": (
-        "請將圖片中所有文字翻譯成繁體中文。"
-        "先輸出原文，再輸出對應的繁體中文翻譯。"
-        "格式：[原文] → [繁體中文譯文]"
+        "Hãy dịch toàn bộ văn bản trong ảnh sang tiếng Việt. "
+        "Định dạng: [Văn bản gốc] → [Bản dịch tiếng Việt]"
     ),
     "4": (
-        "請深入分析這張圖片的內容、數據或訊息。"
-        "若有圖表請解讀趨勢與數據；若有文件請總結重點；若是一般圖片請分析主題與含義。"
+        "Hãy phân tích sâu nội dung, dữ liệu hoặc thông tin trong ảnh này. "
+        "Nếu có biểu đồ, hãy diễn giải xu hướng và số liệu; nếu là tài liệu, hãy tóm tắt điểm chính; "
+        "nếu là ảnh thông thường, hãy phân tích chủ đề và ý nghĩa. "
+        "Trả lời bằng tiếng Việt."
     ),
 }
 _REPLY_TRIGGERS = ["bot", "ai", "bolt", "trợ lý", "em ơi", "bạn ơi"]
@@ -150,7 +138,7 @@ async def _process_event_inner(event: MessageEvent) -> None:
 
         try:
             await line_api.show_loading_animation(
-                ShowLoadingAnimationRequest(chat_id=user_id, loading_seconds=30)
+                ShowLoadingAnimationRequest(chat_id=user_id, loading_seconds=60)
             )
         except Exception:
             pass
@@ -213,11 +201,11 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         await db.commit()
 
                     await set_pending_choice(user_id, f"audio:{audio_id}")
-                    reply = f"🎤 Đã bóc băng:\n{transcript}"
+                    reply = f"🎤 Đã bóc băng xong:\n\n{transcript}\n\nBạn muốn làm gì tiếp theo?"
                     qr_items = [
-                        QuickReplyItem(action=MessageAction(label="1️⃣ Tóm tắt", text="1")),
-                        QuickReplyItem(action=MessageAction(label="2️⃣ Lưu RAG", text="2")),
-                        QuickReplyItem(action=MessageAction(label="3️⃣ Cả hai",  text="3")),
+                        QuickReplyItem(action=MessageAction(label="1️⃣ Phân tích/Tóm tắt", text="1")),
+                        QuickReplyItem(action=MessageAction(label="2️⃣ Lưu vào tài liệu",  text="2")),
+                        QuickReplyItem(action=MessageAction(label="3️⃣ Cả hai",             text="3")),
                     ]
 
         # ── IMAGE PIPELINE — Pha 1: Hold & Wait ────────────────────────────
@@ -257,7 +245,13 @@ async def _process_event_inner(event: MessageEvent) -> None:
                     await clear_pending_image(user_id)
                     reply = "🗑 Đã hủy. Ảnh đã được xóa."
                 elif user_text not in _VISION_PROMPTS:
-                    reply = "⚠️ Vui lòng chọn 1, 2, 3 hoặc 4. Gõ /hủy để huỷ."
+                    reply = "⚠️ Vui lòng chọn 1 trong 4 tùy chọn bên dưới, hoặc gõ /hủy để huỷ."
+                    qr_items = [
+                        QuickReplyItem(action=MessageAction(label="1️⃣ Mô tả",    text="1")),
+                        QuickReplyItem(action=MessageAction(label="2️⃣ OCR",       text="2")),
+                        QuickReplyItem(action=MessageAction(label="3️⃣ Dịch",      text="3")),
+                        QuickReplyItem(action=MessageAction(label="4️⃣ Phân tích", text="4")),
+                    ]
                 else:
                     vision_prompt = _VISION_PROMPTS[user_text]
                     async with aiosqlite.connect(DB_PATH) as db:
@@ -297,8 +291,10 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 pending   = await get_pending_choice(user_id)
                 cmd_reply = None
 
+                cmd_check = user_text.strip().lower()
+
                 # Xử lý Quick Reply số (audio / mail) theo state
-                if user_text.isdigit() and len(user_text) <= 2 and pending:
+                if user_text.isdigit() and len(user_text) <= 2 and pending and pending != "clear_confirm":
                     if pending == "mail":
                         cmd_reply = await handle_command(user_id, f"/mail {user_text}")
                     elif pending.startswith("audio:"):
@@ -308,11 +304,22 @@ async def _process_event_inner(event: MessageEvent) -> None:
                         )
                     await clear_pending_choice(user_id)
 
+                # /clear — yêu cầu xác nhận 2 bước
+                elif cmd_check == "/clear":
+                    if pending == "clear_confirm":
+                        await clear_pending_choice(user_id)
+                        cmd_reply = await handle_command(user_id, user_text)
+                    else:
+                        await set_pending_choice(user_id, "clear_confirm")
+                        cmd_reply = (
+                            "⚠️ Bạn có chắc muốn xoá toàn bộ lịch sử hội thoại không?\n"
+                            "Gõ /clear lần nữa để xác nhận, hoặc nhắn bất kỳ nội dung khác để huỷ."
+                        )
+
                 # Xử lý lệnh bình thường
                 else:
                     cmd_reply = await handle_command(user_id, user_text)
 
-                    cmd_check = user_text.strip().lower()
                     if cmd_check in ["/mail", "/ls mail", "mail"] and cmd_reply and "1" in cmd_reply:
                         await set_pending_choice(user_id, "mail")
                         qr_items = [
@@ -328,6 +335,9 @@ async def _process_event_inner(event: MessageEvent) -> None:
                 if cmd_reply is not None:
                     reply = cmd_reply
                 else:
+                    # User moved on — clear any stale confirmation state
+                    if pending == "clear_confirm":
+                        await clear_pending_choice(user_id)
                     model_key, model_id = await resolve_model(user_id, user_text)
                     history = await get_history_with_summary(user_id)
 
@@ -356,19 +366,27 @@ async def _process_event_inner(event: MessageEvent) -> None:
 
                 # Auto-export to Google Drive if response is long (>5k chars)
                 if len(reply) > 5000:
-                    try:
-                        from commands.data import export_to_drive
-                        import datetime
-                        # Create a better filename with context
-                        first_line = reply.split('\n')[0][:30].replace(' ', '_') if reply else "response"
-                        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                        filename = f"{first_line}_{timestamp}.txt"
-                        drive_link = await export_to_drive(user_id, reply, filename)
-                        # Add drive link as last message
-                        messages.append(TextMessage(text=f"📤 Full answer too long! Exported to Google Drive:\n🔗 {drive_link}\n\nYou can read the complete answer there."))
-                    except Exception as e:
-                        # If export fails, just continue without it
-                        logger.info(f"Auto-export failed (user may not have Google Drive linked): {e}")
+                    async with aiosqlite.connect(DB_PATH) as _db:
+                        async with _db.execute(
+                            "SELECT 1 FROM google_auth WHERE user_id = ?", (user_id,)
+                        ) as _cur:
+                            _has_drive = await _cur.fetchone() is not None
+                    if _has_drive:
+                        try:
+                            from commands.data import export_to_drive
+                            first_line = reply.split('\n')[0][:30].replace(' ', '_') if reply else "response"
+                            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                            filename = f"{first_line}_{timestamp}.txt"
+                            drive_link = await export_to_drive(user_id, reply, filename)
+                            messages.append(TextMessage(
+                                text=f"📤 Câu trả lời quá dài, đã lưu toàn bộ vào Google Drive:\n🔗 {drive_link}"
+                            ))
+                        except Exception as e:
+                            logger.info(f"Auto-export failed: {e}")
+                    else:
+                        messages.append(TextMessage(
+                            text="📝 Câu trả lời bị cắt bớt do quá dài (>5000 ký tự).\nDùng /login để kết nối Google Drive và nhận câu trả lời đầy đủ."
+                        ))
 
                 if qr_items and messages:
                     messages[-1] = TextMessage(

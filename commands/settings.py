@@ -76,7 +76,7 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
             await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
             await db.execute("DELETE FROM summary WHERE user_id = ?", (user_id,))
             await db.commit()
-        return "🗑 對話記錄已清除。"
+        return "🗑 Đã xoá toàn bộ lịch sử hội thoại."
 
     # Short commands
     if cmd == "a":
@@ -85,26 +85,46 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
     
     if cmd == "auto":
         await set_user_model(user_id, DEFAULT_MODEL_KEY)
-        return "🤖 已切換至自動選擇模型模式。"
+        return "🤖 Đã chuyển sang chế độ tự động chọn model."
 
     if cmd == "help" or cmd == "h":
         return (
-            "📋 CON MÈO NGỐC 🐱 - TRỢ LÝ THÔNG MINH\n\n"
-            "🔥 Nhanh chóng:\n"
-            "/m <số> - Chọn model (1-5: Mistral, 6-9: Groq)\n"
-            "/a - Tự động chọn model\n"
-            "/p <câu hỏi> - Chế độ chuyên gia\n\n"
-            "🤖 Chức năng:\n"
-            "/export <nội dung> - Lưu vào Google Drive\n"
-            "/pro <vấn đề> - Phân tích chuyên sâu\n"
-            "/d <câu hỏi> - Tranh luận 2 phía\n"
-            "/ag <nhiệm vụ> - Trợ lý đa chức năng\n"
-            "/co <yêu cầu> - Chuyên gia lập trình\n\n"
-            "📧 Google:\n"
-            "/login - Kết nối tài khoản\n"
-            "/mail <số> - Đọc email\n"
-            "/cal - Xem lịch\n\n"
-            "💡 Gõ /models để xem tất cả model!"
+            "📋 CON MÈO NGỐC 🐱 — HƯỚNG DẪN\n\n"
+            "🤖 MODEL AI\n"
+            "/m <1-9> — Chọn model nhanh\n"
+            "/a — Tự động chọn model\n"
+            "/models — Xem toàn bộ danh sách\n\n"
+            "💬 TRÒ CHUYỆN\n"
+            "Nhắn bất kỳ câu hỏi nào để chat\n"
+            "/pro <câu hỏi> — Phân tích chuyên sâu\n"
+            "/d <câu hỏi> — Tranh luận 2 phía\n"
+            "/co <yêu cầu> — Chuyên gia lập trình\n"
+            "/ag <nhiệm vụ> — Chế độ đa tác tử\n\n"
+            "🎤 GIỌNG NÓI & ẢNH\n"
+            "Gửi voice/ảnh trực tiếp — bot tự xử lý\n"
+            "Bắt đầu voice bằng 'bot/ai/em ơi' để reply ngay\n\n"
+            "📚 TÀI LIỆU (RAG)\n"
+            "Gửi file PDF/TXT/DOCX — bot tự học\n"
+            "/rag list — xem tài liệu\n"
+            "/rag delete <tên> — xoá file\n"
+            "/rag clear — xoá tất cả\n"
+            "/rag off / on — tắt/bật tìm kiếm tài liệu\n\n"
+            "⏰ NHẮC NHỞ\n"
+            "/remind 20:00 uống thuốc\n"
+            "/remind 09:00 daily họp team\n"
+            "/remind list — xem danh sách\n\n"
+            "📧 GOOGLE (cần /login trước)\n"
+            "/login — kết nối tài khoản Google\n"
+            "/mail — đọc email\n"
+            "/cal — xem lịch hôm nay\n"
+            "/export <nội dung> — lưu vào Drive\n\n"
+            "⚙️ CÀI ĐẶT\n"
+            "/vi — trả lời tiếng Việt\n"
+            "/tw — trả lời tiếng Trung\n"
+            "/long — câu trả lời dài hơn\n"
+            "/short — câu trả lời ngắn lại\n"
+            "/clear — xoá lịch sử (có xác nhận)\n"
+            "/profile — xem/cập nhật thông tin cá nhân"
         )
 
     if cmd == "models":
@@ -118,19 +138,19 @@ async def handle_settings_command(user_id: str, cmd: str, arg: str) -> str | Non
         if not arg:
             key = await get_user_model(user_id)
             cfg = MODEL_REGISTRY[key]
-            mode = "自動" if key == DEFAULT_MODEL_KEY else "手動"
+            mode = "Tự động" if key == DEFAULT_MODEL_KEY else "Thủ công"
             return (
-                f"🤖 目前模型：{cfg['display']}\n"
-                f"   模式：{mode}\n"
+                f"🤖 Model hiện tại: {cfg['display']}\n"
+                f"   Chế độ: {mode}\n"
                 f"   {cfg['note']}\n\n"
-                "輸入 /models 查看全部。\n"
-                "輸入 /auto 返回自動模式。"
+                "Gõ /models để xem tất cả model.\n"
+                "Gõ /auto để về chế độ tự động."
             )
         target = arg.lower()
         if target not in MODEL_REGISTRY:
-            return f"❌ /{target} 不存在。\n請輸入 /models 查看清單。"
+            return f"❌ Model '{target}' không tồn tại.\nGõ /models để xem danh sách."
         await set_user_model(user_id, target)
-        return f"✅ 已切換至 {MODEL_REGISTRY[target]['display']}。\n輸入 /auto 返回自動模式。"
+        return f"✅ Đã chuyển sang {MODEL_REGISTRY[target]['display']}.\nGõ /auto để về chế độ tự động."
 
     # Short model commands: /m <number>
     if cmd == "m":
