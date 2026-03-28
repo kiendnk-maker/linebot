@@ -294,9 +294,11 @@ async def call_mistral_text(
             max_tokens=max_tok,
         )
         result = (resp.choices[0].message.content or "").strip()
-        if _want_detail:
-            return result if result else "⚠️ Model không trả về phản hồi. Vui lòng thử lại."
-        return strip_markdown(result) if result else "⚠️ Model không trả về phản hồi. Vui lòng thử lại."
+        if not result:
+            return "⚠️ Model không trả về phản hồi. Vui lòng thử lại."
+        display_name = cfg.get("display", model_key)
+        body = result if _want_detail else strip_markdown(result)
+        return f"{body}\n\n— {display_name}"
 
     except Exception as e:
         logger.error(f"call_mistral_text error [{model_id}]: {e}")
@@ -369,7 +371,11 @@ async def call_mistral_vision(
             ],
             max_tokens=800,
         )
-        return (resp.choices[0].message.content or "").strip()
+        result = (resp.choices[0].message.content or "").strip()
+        if not result:
+            return "⚠️ Model không trả về phản hồi."
+        vision_display = MODEL_REGISTRY.get(VISION_MODEL_KEY, {}).get("display", VISION_MODEL_KEY)
+        return f"{result}\n\n— {vision_display}"
     except Exception as e:
         return f"⚠️ Lỗi nhận diện ảnh: {str(e)[:150]}"
 
