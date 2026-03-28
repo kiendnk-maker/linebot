@@ -306,7 +306,6 @@ async def call_mistral_text(
         if "mistral" in model_id.lower() and ("404" in error_str or "not exist" in error_str or "access" in error_str):
             try:
                 # Provide helpful fallback with Google Drive export option
-                from prompts import MODEL_REGISTRY
                 model_info = MODEL_REGISTRY.get(model_key, {})
                 model_name = model_info.get("display", model_key)
                 
